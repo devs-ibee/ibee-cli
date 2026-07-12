@@ -45,17 +45,26 @@ def create_bucket(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Bucket name (unique within the workspace)"),
     public: bool = typer.Option(False, "--public", help="Allow unauthenticated read access"),
+    region: str = typer.Option(
+        "in-south-1",
+        "--region",
+        envvar="IBEE_REGION",
+        help="Storage region for the bucket",
+    ),
 ) -> None:
     """Create a bucket."""
     settings = get_settings(ctx)
     client = get_client(settings)
     result = client.object_storage.create_bucket(
-        workspace_id=require_workspace(settings), name=name, is_public=public
+        workspace_id=require_workspace(settings),
+        name=name,
+        region=region,
+        is_public=public,
     )
     if settings.as_json:
         print_json(result)
         return
-    typer.secho(f"Bucket '{name}' created.", fg=typer.colors.GREEN)
+    typer.secho(f"Bucket '{name}' created in {region}.", fg=typer.colors.GREEN)
 
 
 @app.command("delete")
