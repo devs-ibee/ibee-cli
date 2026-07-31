@@ -51,6 +51,36 @@ def parse_value(raw: str) -> dict:
     return out
 
 
+def parse_json_object(raw: str, option_name: str) -> dict:
+    """Parse an option containing a JSON object."""
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"{option_name} is not valid JSON: {exc}")
+    if not isinstance(data, dict):
+        raise typer.BadParameter(f"{option_name} must be a JSON object")
+    return data
+
+
+def parse_json_array(raw: str, option_name: str) -> list:
+    """Parse an option containing a JSON array."""
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise typer.BadParameter(f"{option_name} is not valid JSON: {exc}")
+    if not isinstance(data, list):
+        raise typer.BadParameter(f"{option_name} must be a JSON array")
+    return data
+
+
+def compact_payload(**values):
+    """Drop options the user did not supply while retaining false and zero."""
+
+    return {key: value for key, value in values.items() if value is not None}
+
+
 def wait_for_operation(client, workspace_id: str, operation_id: str,
                        timeout: float = 300.0, interval: float = 3.0):
     """Poll a compute operation until it reaches a terminal state or times out.

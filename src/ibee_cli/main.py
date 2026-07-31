@@ -5,7 +5,18 @@ from __future__ import annotations
 import typer
 
 from . import __version__
-from .commands import buckets, compute, gpus, ops, secrets, vms
+from .commands import (
+    buckets,
+    compute,
+    firewalls,
+    gpus,
+    load_balancers,
+    networking,
+    ops,
+    reserved_ips,
+    secrets,
+    vms,
+)
 from .context import settings_from_env
 
 app = typer.Typer(
@@ -20,6 +31,10 @@ app.add_typer(vms.app, name="vms")
 app.add_typer(gpus.app, name="gpus")
 app.add_typer(ops.app, name="ops")
 app.add_typer(compute.app, name="compute")
+app.add_typer(networking.app, name="vpcs")
+app.add_typer(reserved_ips.app, name="reserved-ips")
+app.add_typer(firewalls.app, name="firewalls")
+app.add_typer(load_balancers.app, name="load-balancers")
 
 
 def _version_callback(value: bool) -> None:

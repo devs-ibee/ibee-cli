@@ -11,6 +11,8 @@ from ibee.core.api_error import ApiError
 from rich.console import Console
 from rich.table import Table
 
+from .context import CliApiError
+
 console = Console()
 
 
@@ -41,7 +43,7 @@ def handle_api_errors(fn: Callable) -> Callable:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
-        except ApiError as exc:
+        except (ApiError, CliApiError) as exc:
             if exc.status_code == 401:
                 msg = "Unauthorized (401): the API token is invalid or revoked."
             elif exc.status_code == 403:
