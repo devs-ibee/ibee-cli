@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from typer.testing import CliRunner
 
@@ -172,7 +174,8 @@ def test_bucket_update_requires_visibility_choice(requests):
         app, [*BASE_ARGS, "buckets", "update", "production-assets"]
     )
     assert result.exit_code != 0
-    assert "Provide --public or --private" in result.output
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "Provide --public or --private" in plain_output
     assert requests == []
 
 
