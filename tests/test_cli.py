@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import typer
+from click import unstyle
 from ibee.core.api_error import ApiError
 from typer.testing import CliRunner
 
@@ -289,9 +290,10 @@ def test_sensitive_identity_credentials_require_explicit_opt_in(monkeypatch):
             app,
             ["secrets", "identities", command, "identity-1"],
             env=env,
+            color=True,
         )
         assert result.exit_code == 2
-        assert "--show-sensitive" in result.output
+        assert "--show-sensitive" in unstyle(result.output)
     assert called is False
 
 
@@ -318,10 +320,12 @@ def test_kubernetes_identity_requires_binding_fields(monkeypatch):
             "kubernetes",
         ],
         env={"IBEE_TOKEN": "test-token", "IBEE_WORKSPACE_ID": "973318"},
+        color=True,
     )
     assert result.exit_code == 2
-    assert "--k8s-namespace" in result.output
-    assert "--k8s-service-account" in result.output
+    output = unstyle(result.output)
+    assert "--k8s-namespace" in output
+    assert "--k8s-service-account" in output
     assert called is False
 
 
