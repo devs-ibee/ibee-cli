@@ -49,7 +49,11 @@ def get_vm(ctx: typer.Context, vm_id: str = typer.Argument(..., help="VM ID")) -
 def create_vm(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Display name for the VM"),
-    site_id: str = typer.Option(..., "--site-id", help="Placement site ID. See `ibee compute sites`."),
+    site_id: Optional[str] = typer.Option(
+        None,
+        "--site-id",
+        help="Optional placement site; omit for automatic placement",
+    ),
     os_distro: str = typer.Option("ubuntu", "--os-distro", help="OS distribution (ubuntu, debian, rocky, windows)"),
     os_type: str = typer.Option("linux", "--os-type", help="OS family (linux, windows)"),
     cpu: int = typer.Option(2, "--cpu", help="vCPUs (fallback when no plan)"),
@@ -65,11 +69,10 @@ def create_vm(
     settings = get_settings(ctx)
     workspace = require_workspace(settings)
     client = get_client(settings)
-    result = client.cloud_vms.create_cloud_vm(
+    create_args = dict(
         workspace_id=workspace,
         idempotency_key=new_idempotency_key("vm-create", name),
         name=name,
-        site_id=site_id,
         os_distro=os_distro,
         os_type=os_type,
         cpu=cpu,
@@ -80,6 +83,9 @@ def create_vm(
         ssh_key_ids=ssh_key_id or None,
         tags=tag or None,
     )
+    if site_id is not None:
+        create_args["site_id"] = site_id
+    result = client.cloud_vms.create_cloud_vm(**create_args)
     finish_operation(settings, client, workspace, result, "Create", name, wait)
 
 

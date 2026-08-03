@@ -87,7 +87,11 @@ def list_buckets(
 def create_bucket(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Bucket name (unique within the workspace)"),
-    site_id: str = typer.Option(..., "--site-id", help="Placement site ID"),
+    site_id: Optional[str] = typer.Option(
+        None,
+        "--site-id",
+        help="Optional placement site; omit to use the workspace default",
+    ),
     site_name: Optional[str] = typer.Option(None, "--site-name"),
     region: Optional[str] = typer.Option(
         None, "--region", envvar="IBEE_REGION", help="Storage region"

@@ -15,7 +15,7 @@ Requires Python 3.10+.
 Create an API token in the portal under **Settings > API Tokens**, then:
 
 ```bash
-export IBEE_TOKEN="ibee_live_xxxxxxxxxxxx"
+export IBEE_TOKEN="ibee_prod_key_xxxxxxxxxxxx"
 export IBEE_WORKSPACE_ID="710995"
 ```
 
@@ -26,7 +26,7 @@ Both can also be passed per command with `--token` and `--workspace`.
 ```bash
 # Object storage
 ibee buckets list
-ibee buckets create my-bucket --site-id SITE_ID
+ibee buckets create my-bucket
 ibee buckets get my-bucket
 ibee buckets update my-bucket --public
 ibee buckets delete my-bucket --yes
@@ -62,7 +62,7 @@ ibee compute images --vm-type gpu
 # Cloud VMs
 ibee vms list
 ibee vms get VM_ID
-ibee vms create web-01 --site-id SITE_ID --plan-id PLAN_ID --template-id IMAGE_ID --ssh-key-id KEY_ID --wait
+ibee vms create web-01 --plan-id PLAN_ID --template-id IMAGE_ID --ssh-key-id KEY_ID --wait
 ibee vms start VM_ID
 ibee vms stop VM_ID
 ibee vms reboot VM_ID
@@ -71,7 +71,7 @@ ibee vms delete VM_ID --yes --wait
 
 # GPU VMs (same verbs as Cloud VMs)
 ibee gpus list
-ibee gpus create train-01 --site-id SITE_ID --gpu-model A100 --gpu-count 1 \
+ibee gpus create train-01 --gpu-model A100 --gpu-count 1 \
   --plan-id PLAN_ID --template-id IMAGE_ID --wait
 ibee gpus start VM_ID
 ibee gpus stop VM_ID
@@ -139,6 +139,9 @@ ibee load-balancers delete LOAD_BALANCER_ID --yes
 
 Create/delete/power actions are asynchronous; add `--wait` to block until the
 operation finishes, or poll it later with `ibee ops get`.
+
+Bucket and VM placement are automatic when `--site-id` is omitted. Use
+`ibee compute sites` and pass `--site-id` only when placement must be pinned.
 
 For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
 [API reference](https://ibee.ai/docs/api-reference). This keeps advanced

@@ -84,6 +84,16 @@ def test_create_bucket_request(requests):
     }
 
 
+def test_create_bucket_can_use_automatic_placement(requests):
+    call = invoke(requests, ["buckets", "create", "automatic-assets"])
+    assert call["json"] == {
+        "name": "automatic-assets",
+        "plan": "Standard",
+        "is_public": False,
+        "bucket_lock_enabled": False,
+    }
+
+
 @pytest.mark.parametrize(
     ("args", "method", "path", "payload"),
     [

@@ -180,6 +180,34 @@ def test_vm_create_forwards_required_catalog_ids(monkeypatch):
     assert calls[0]["template_id"] == "image-1"
 
 
+def test_vm_create_omits_site_for_automatic_placement(monkeypatch):
+    calls = []
+
+    class CloudVms:
+        def create_cloud_vm(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(operation_id="op-1")
+
+    monkeypatch.setattr(
+        vms,
+        "get_client",
+        lambda settings: SimpleNamespace(cloud_vms=CloudVms()),
+    )
+    monkeypatch.setattr(vms, "finish_operation", lambda *args: None)
+    result = runner.invoke(
+        app,
+        [
+            "--token", "test-token",
+            "--workspace", "607005",
+            "vms", "create", "web",
+            "--plan-id", "plan-1",
+            "--template-id", "image-1",
+        ],
+    )
+    assert result.exit_code == 0
+    assert "site_id" not in calls[0]
+
+
 def test_missing_token_is_clean_error(monkeypatch):
     for var in ("IBEE_TOKEN", "IBEE_API_TOKEN", "IBEE_WORKSPACE_ID"):
         monkeypatch.delenv(var, raising=False)

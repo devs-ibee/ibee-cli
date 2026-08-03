@@ -69,7 +69,10 @@ def get_client(settings: Settings) -> Ibee:
         if development is None:
             return Ibee(token=token, base_url=DEVELOPMENT_API_BASE_URL, timeout=30)
         return Ibee(token=token, environment=development, timeout=30)
-    return Ibee(token=token, environment=IbeeEnvironment.DEFAULT, timeout=30)
+    production = getattr(IbeeEnvironment, "PRODUCTION", None)
+    if production is None:
+        production = getattr(IbeeEnvironment, "DEFAULT")
+    return Ibee(token=token, environment=production, timeout=30)
 
 
 def api_base_url(settings: Settings) -> str:

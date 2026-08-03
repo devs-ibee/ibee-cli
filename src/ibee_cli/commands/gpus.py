@@ -53,7 +53,11 @@ def get_gpu_vm(ctx: typer.Context, vm_id: str = typer.Argument(..., help="GPU VM
 def create_gpu_vm(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Display name for the GPU VM"),
-    site_id: str = typer.Option(..., "--site-id", help="Placement site ID. See `ibee compute sites`."),
+    site_id: Optional[str] = typer.Option(
+        None,
+        "--site-id",
+        help="Optional placement site; omit for automatic placement",
+    ),
     gpu_model: str = typer.Option(..., "--gpu-model", help="GPU model (A100, H100, L40S, RTX4090)"),
     gpu_count: int = typer.Option(1, "--gpu-count", help="Number of GPUs to attach"),
     os_distro: str = typer.Option("ubuntu", "--os-distro", help="OS distribution"),
@@ -71,11 +75,10 @@ def create_gpu_vm(
     settings = get_settings(ctx)
     workspace = require_workspace(settings)
     client = get_client(settings)
-    result = client.gpu_vms.create_gpu_vm(
+    create_args = dict(
         workspace_id=workspace,
         idempotency_key=new_idempotency_key("gpu-create", name),
         name=name,
-        site_id=site_id,
         os_distro=os_distro,
         os_type=os_type,
         cpu=cpu,
@@ -88,6 +91,9 @@ def create_gpu_vm(
         ssh_key_ids=ssh_key_id or None,
         tags=tag or None,
     )
+    if site_id is not None:
+        create_args["site_id"] = site_id
+    result = client.gpu_vms.create_gpu_vm(**create_args)
     finish_operation(settings, client, workspace, result, "Create", name, wait)
 
 
