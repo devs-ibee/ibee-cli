@@ -15,7 +15,7 @@ Requires Python 3.10+.
 Create an API token in the portal under **Settings > API Tokens**, then:
 
 ```bash
-export IBEE_TOKEN="ibee_live_xxxxxxxxxxxx"
+export IBEE_TOKEN="ibee_prod_key_xxxxxxxxxxxx"
 export IBEE_WORKSPACE_ID="710995"
 ```
 
@@ -35,6 +35,9 @@ ibee secrets stores create production-secrets --description "prod"
 ibee secrets stores get STORE_ID
 ibee secrets stores update STORE_ID --name renamed
 ibee secrets stores archive STORE_ID --yes
+ibee secrets stores unarchive STORE_ID
+# Irreversibly deletes the store and every store-scoped resource
+ibee secrets stores delete-permanent STORE_ID --yes
 
 # Secret Store — secrets
 ibee secrets list --store-id STORE_ID
@@ -42,7 +45,42 @@ ibee secrets create --store-id STORE_ID --name db-url --value '{"url":"postgres:
 ibee secrets get SECRET_ID           # metadata
 ibee secrets value SECRET_ID         # current value
 ibee secrets set-value SECRET_ID --value '{"url":"postgres://new"}'
+ibee secrets patch-value SECRET_ID --value '{"username":"app"}'
+ibee secrets versions SECRET_ID      # version metadata only
+ibee secrets version SECRET_ID 1     # includes the sensitive version value
+ibee secrets rollback SECRET_ID --version 1
 ibee secrets delete SECRET_ID --yes
+ibee secrets undelete SECRET_ID --versions 1,2
+ibee secrets destroy-versions SECRET_ID --versions 1 --yes
+ibee secrets delete-permanent SECRET_ID --yes
+
+# Secret Store — application identities
+ibee secrets identities list --store-id STORE_ID
+ibee secrets identities create --store-id STORE_ID --name worker --auth-method approle
+ibee secrets identities get IDENTITY_ID
+ibee secrets identities update IDENTITY_ID --token-policy-mode read_write
+ibee secrets identities disable IDENTITY_ID
+ibee secrets identities enable IDENTITY_ID
+
+# These commands print generated credentials only with an explicit opt-in.
+# Keep terminal output, logs, and shell history secure.
+ibee secrets identities access IDENTITY_ID --show-sensitive
+ibee secrets identities rotate-secret-id IDENTITY_ID --show-sensitive
+ibee secrets identities revoke-sessions IDENTITY_ID --yes
+
+# Kubernetes identities require both binding fields
+ibee secrets identities create --store-id STORE_ID --name in-cluster \
+  --auth-method kubernetes --k8s-namespace apps --k8s-service-account worker
+
+# Grant and update access to additional stores
+ibee secrets identities scopes list IDENTITY_ID
+ibee secrets identities scopes create IDENTITY_ID --store-id OTHER_STORE_ID \
+  --access-mode read_only --allow-version-read
+ibee secrets identities scopes update SCOPE_ID --access-mode read_write --allow-rollback
+ibee secrets identities scopes delete SCOPE_ID --yes
+
+# Permanently removes the identity, all scopes, its role/policy, and sessions
+ibee secrets identities delete IDENTITY_ID --yes
 
 # Compute catalog (discover placement / plans / images for `create`)
 ibee compute sites
@@ -83,7 +121,11 @@ ibee --json buckets list
 
 ## Environments
 
-The CLI targets production by default. Use `--dev` (or `IBEE_ENV=dev`) for the development environment, or `--base-url` for a custom endpoint:
+The CLI targets production (`https://api.ibee.ai/v1`) by default. Use `--dev`
+(or `IBEE_ENV=dev`) for the development gateway
+(`https://api.ibee.co.in/v1`), or `--base-url` for a custom endpoint. Match
+production tokens to `.ai` and development tokens to `.co.in`; resource IDs
+are environment-specific.
 
 ```bash
 ibee --dev buckets list

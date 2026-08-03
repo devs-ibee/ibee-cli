@@ -45,7 +45,14 @@ def handle_api_errors(fn: Callable) -> Callable:
             if exc.status_code == 401:
                 msg = "Unauthorized (401): the API token is invalid or revoked."
             elif exc.status_code == 403:
-                msg = f"Forbidden (403): the token is missing a required scope. body={exc.body!r}"
+                if "does not belong to workspace" in str(exc.body).lower():
+                    msg = (
+                        "Forbidden (403): the resource belongs to a different workspace. "
+                        "Verify --workspace or IBEE_WORKSPACE_ID matches the workspace used "
+                        f"when the resource was created. body={exc.body!r}"
+                    )
+                else:
+                    msg = f"Forbidden (403): the token is missing a required scope. body={exc.body!r}"
             elif exc.status_code == 404:
                 msg = (
                     "Not found (404): this API route is not enabled on the gateway yet "
