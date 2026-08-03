@@ -16,10 +16,20 @@ from .context import CliApiError
 console = Console()
 
 
-def print_json(payload: Any) -> None:
+def _json_value(payload: Any) -> Any:
+    if hasattr(payload, "model_dump"):
+        return _json_value(payload.model_dump())
     if hasattr(payload, "dict"):
-        payload = payload.dict()
-    console.print_json(json.dumps(payload, default=str))
+        return _json_value(payload.dict())
+    if isinstance(payload, dict):
+        return {key: _json_value(value) for key, value in payload.items()}
+    if isinstance(payload, (list, tuple)):
+        return [_json_value(value) for value in payload]
+    return payload
+
+
+def print_json(payload: Any) -> None:
+    console.print_json(json.dumps(_json_value(payload), default=str))
 
 
 def print_table(title: str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
@@ -46,6 +56,11 @@ def handle_api_errors(fn: Callable) -> Callable:
         except (ApiError, CliApiError) as exc:
             if exc.status_code == 401:
                 msg = "Unauthorized (401): the API token is invalid or revoked."
+            elif exc.status_code == 402:
+                msg = (
+                    "Payment required (402): billing denied this resource "
+                    f"creation. body={exc.body!r}"
+                )
             elif exc.status_code == 403:
                 msg = f"Forbidden (403): the token is missing a required scope. body={exc.body!r}"
             elif exc.status_code == 404:

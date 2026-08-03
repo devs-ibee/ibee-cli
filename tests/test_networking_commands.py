@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
+from ibee_cli.commands import load_balancers, networking, reserved_ips
 from ibee_cli.main import app
 
 runner = CliRunner()
@@ -32,6 +33,13 @@ class FakeResponse:
 @pytest.fixture
 def requests(monkeypatch):
     calls = []
+
+    # Keep these request-shape tests independent of whichever SDK release is
+    # installed. Billing behavior has dedicated typed-client tests.
+    sdk_without_billing = object()
+    monkeypatch.setattr(networking, "get_client", lambda _settings: sdk_without_billing)
+    monkeypatch.setattr(reserved_ips, "get_client", lambda _settings: sdk_without_billing)
+    monkeypatch.setattr(load_balancers, "get_client", lambda _settings: sdk_without_billing)
 
     def fake_request(method, url, **kwargs):
         calls.append({"method": method, "url": url, **kwargs})

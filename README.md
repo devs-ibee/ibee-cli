@@ -59,6 +59,9 @@ ibee compute sites
 ibee compute plans --vm-type cloud
 ibee compute images --vm-type gpu
 
+# Billing admission (SKU must come from an IBEE product catalog)
+ibee billing eligibility --sku-code PLAN_SKU
+
 # Cloud VMs
 ibee vms list
 ibee vms get VM_ID
@@ -142,6 +145,13 @@ operation finishes, or poll it later with `ibee ops get`.
 
 Bucket and VM placement are automatic when `--site-id` is omitted. Use
 `ibee compute sites` and pass `--site-id` only when placement must be pinned.
+
+Billable creates run a billing-eligibility preflight. The CLI includes a
+catalog SKU only when that SKU is published by IBEE; otherwise it performs a
+status-only admission check. The product API repeats the check immediately
+before provisioning and remains authoritative. Non-billable actions such as
+VM power, network attachment, updates, and deletes do not run a wallet
+preflight.
 
 For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
 [API reference](https://ibee.ai/docs/api-reference). This keeps advanced

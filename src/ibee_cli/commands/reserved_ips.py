@@ -6,8 +6,8 @@ from typing import Optional
 
 import typer
 
-from ..context import api_request, get_settings
-from ..helpers import compact_payload
+from ..context import api_request, get_client, get_settings, require_workspace
+from ..helpers import compact_payload, require_billing_eligibility
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="Reserve and attach public IP addresses", no_args_is_help=True)
@@ -51,6 +51,11 @@ def reserve_ip(
 ) -> None:
     """Reserve a public IP address."""
 
+    settings = get_settings(ctx)
+    require_billing_eligibility(
+        get_client(settings),
+        require_workspace(settings),
+    )
     _call(
         ctx,
         "POST",

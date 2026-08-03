@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import parse_value
+from ..helpers import parse_value, require_billing_eligibility
 from ..render import handle_api_errors, print_json, print_table
 
 app = typer.Typer(help="Secret Store: stores and secrets", no_args_is_help=True)
@@ -48,8 +48,12 @@ def create_store(
     """Create a secret store."""
     settings = get_settings(ctx)
     client = get_client(settings)
+    workspace = require_workspace(settings)
+    require_billing_eligibility(
+        client, workspace, sku_code="SECRETMA-STD"
+    )
     result = client.secret_store.create_secret_store(
-        workspace_id=require_workspace(settings), name=name, description=description
+        workspace_id=workspace, name=name, description=description
     )
     if settings.as_json:
         print_json(result)
@@ -148,8 +152,12 @@ def create_secret(
     """Create a secret in a store."""
     settings = get_settings(ctx)
     client = get_client(settings)
+    workspace = require_workspace(settings)
+    require_billing_eligibility(
+        client, workspace, sku_code="SECRETMA-STD"
+    )
     result = client.secret_store.create_secret(
-        workspace_id=require_workspace(settings),
+        workspace_id=workspace,
         store_id=store_id,
         secret_name=name,
         value=parse_value(value),

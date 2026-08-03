@@ -6,6 +6,7 @@ import typer
 
 from . import __version__
 from .commands import (
+    billing,
     buckets,
     compute,
     firewalls,
@@ -26,6 +27,7 @@ app = typer.Typer(
 )
 
 app.add_typer(buckets.app, name="buckets")
+app.add_typer(billing.app, name="billing")
 app.add_typer(secrets.app, name="secrets")
 app.add_typer(vms.app, name="vms")
 app.add_typer(gpus.app, name="gpus")

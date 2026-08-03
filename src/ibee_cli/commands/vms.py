@@ -7,7 +7,12 @@ from typing import List, Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import finish_operation, new_idempotency_key
+from ..helpers import (
+    finish_operation,
+    new_idempotency_key,
+    preflight_compute_plan,
+    response_items,
+)
 from ..render import handle_api_errors, print_json, print_table
 
 app = typer.Typer(help="Cloud VMs", no_args_is_help=True)
@@ -23,7 +28,7 @@ def list_vms(ctx: typer.Context) -> None:
     if settings.as_json:
         print_json(result)
         return
-    vms = getattr(result, "items", None) or getattr(result, "vms", None) or []
+    vms = response_items(result, "items", "vms")
     print_table(
         "Cloud VMs",
         ["ID", "Name", "Status", "CPU", "RAM (MB)", "Public IP"],
@@ -69,6 +74,13 @@ def create_vm(
     settings = get_settings(ctx)
     workspace = require_workspace(settings)
     client = get_client(settings)
+    preflight_compute_plan(
+        client,
+        workspace,
+        vm_type="cloud",
+        site_id=site_id,
+        plan_id=plan_id,
+    )
     create_args = dict(
         workspace_id=workspace,
         idempotency_key=new_idempotency_key("vm-create", name),

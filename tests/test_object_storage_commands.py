@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from types import SimpleNamespace
 
 import pytest
 from typer.testing import CliRunner
@@ -41,6 +42,22 @@ def requests(monkeypatch):
     return calls
 
 
+@pytest.fixture
+def billing_calls(monkeypatch):
+    calls = []
+
+    class Billing:
+        def check_resource_eligibility(self, **kwargs):
+            calls.append(kwargs)
+            return SimpleNamespace(allowed=True, reason="ok")
+
+    monkeypatch.setattr(
+        "ibee_cli.commands.buckets.get_client",
+        lambda _settings: SimpleNamespace(billing=Billing()),
+    )
+    return calls
+
+
 def invoke(requests, args):
     result = runner.invoke(app, [*BASE_ARGS, *args])
     assert result.exit_code == 0, result.output
@@ -51,7 +68,7 @@ def invoke(requests, args):
     return call
 
 
-def test_create_bucket_request(requests):
+def test_create_bucket_request(requests, billing_calls):
     call = invoke(
         requests,
         [
@@ -82,6 +99,9 @@ def test_create_bucket_request(requests):
         "tags": ["production"],
         "metadata": {"owner": "platform"},
     }
+    assert billing_calls == [
+        {"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}
+    ]
 
 
 def test_create_bucket_can_use_automatic_placement(requests):
@@ -172,11 +192,19 @@ def test_bucket_resource_requests(requests, args, method, path, payload):
         ),
     ],
 )
-def test_s3_credential_requests(requests, args, method, path, payload):
+def test_s3_credential_requests(
+    requests, billing_calls, args, method, path, payload
+):
     call = invoke(requests, args)
     assert call["method"] == method
     assert call["url"].endswith(path)
     assert call["json"] == payload
+    expected = (
+        [{"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}]
+        if method == "POST"
+        else []
+    )
+    assert billing_calls == expected
 
 
 def test_bucket_update_requires_visibility_choice(requests):

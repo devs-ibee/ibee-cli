@@ -15,6 +15,7 @@ def test_help_lists_command_groups():
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
     for group in (
+        "billing",
         "buckets",
         "secrets",
         "vms",
@@ -35,6 +36,7 @@ def test_version():
 
 def test_subcommand_help():
     for args in (
+        ["billing", "--help"],
         ["buckets", "--help"],
         ["secrets", "--help"],
         ["vms", "--help"],
