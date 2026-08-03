@@ -75,43 +75,41 @@ def test_create_bucket_request(requests, billing_calls):
             "buckets",
             "create",
             "production-assets",
-            "--site-id",
-            "site-1",
             "--region",
             "in-south-1",
             "--public",
             "--bucket-lock",
             "--tag",
             "production",
-            "--metadata",
-            '{"owner":"platform"}',
+            "--default-retention",
+            '{"mode":"GOVERNANCE","days":30}',
         ],
     )
     assert call["method"] == "POST"
     assert call["url"].endswith("/object-storage/buckets")
     assert call["json"] == {
         "name": "production-assets",
-        "site_id": "site-1",
         "region": "in-south-1",
-        "plan": "Standard",
         "is_public": True,
-        "bucket_lock_enabled": True,
+        "object_lock_enabled": True,
+        "default_retention": {"mode": "GOVERNANCE", "days": 30},
         "tags": ["production"],
-        "metadata": {"owner": "platform"},
     }
     assert billing_calls == [
         {"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}
     ]
 
 
-def test_create_bucket_can_use_automatic_placement(requests):
+def test_create_bucket_can_use_automatic_placement(requests, billing_calls):
     call = invoke(requests, ["buckets", "create", "automatic-assets"])
     assert call["json"] == {
         "name": "automatic-assets",
-        "plan": "Standard",
         "is_public": False,
-        "bucket_lock_enabled": False,
+        "object_lock_enabled": False,
     }
+    assert billing_calls == [
+        {"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}
+    ]
 
 
 @pytest.mark.parametrize(
@@ -214,6 +212,23 @@ def test_bucket_update_requires_visibility_choice(requests):
     assert result.exit_code != 0
     plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
     assert "Provide --public or --private" in plain_output
+    assert requests == []
+
+
+def test_default_retention_requires_bucket_lock(requests):
+    result = runner.invoke(
+        app,
+        [
+            *BASE_ARGS,
+            "buckets",
+            "create",
+            "locked-assets",
+            "--default-retention",
+            '{"mode":"GOVERNANCE","days":30}',
+        ],
+    )
+    assert result.exit_code != 0
+    assert "--default-retention requires --bucket-lock" in result.output
     assert requests == []
 
 

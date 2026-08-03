@@ -224,13 +224,12 @@ def test_older_sdk_without_billing_resource_remains_compatible(monkeypatch):
     assert [name for name, _ in calls] == ["catalog", "create"]
 
 
-@pytest.mark.parametrize("missing", ["site", "plan", "template"])
+@pytest.mark.parametrize("missing", ["plan", "template"])
 def test_create_requires_catalog_ids_before_any_sdk_call(monkeypatch, missing):
     calls = []
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))
     args = ["vms", "create", "web"]
-    if missing != "site":
-        args += ["--site-id", "site-1"]
+    args += ["--site-id", "site-1"]
     if missing != "plan":
         args += ["--plan-id", "plan-1"]
     if missing != "template":

@@ -102,27 +102,29 @@ def list_buckets(
 def create_bucket(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Bucket name (unique within the workspace)"),
-    site_id: Optional[str] = typer.Option(
-        None,
-        "--site-id",
-        help="Optional placement site; omit to use the workspace default",
-    ),
-    site_name: Optional[str] = typer.Option(None, "--site-name"),
     region: Optional[str] = typer.Option(
-        None, "--region", envvar="IBEE_REGION", help="Storage region"
+        None,
+        "--region",
+        envvar="IBEE_REGION",
+        help="Optional storage region; omit when the environment has one region",
     ),
-    plan: str = typer.Option("Standard", "--plan"),
     public: bool = typer.Option(False, "--public", help="Allow public reads"),
     bucket_lock: bool = typer.Option(
         False, "--bucket-lock", help="Enable object-lock support"
     ),
-    tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag (repeatable)"),
-    metadata: Optional[str] = typer.Option(
-        None, "--metadata", help="Metadata JSON object"
+    default_retention: Optional[str] = typer.Option(
+        None,
+        "--default-retention",
+        help='Default retention JSON, for example {"mode":"GOVERNANCE","days":30}',
     ),
+    tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag (repeatable)"),
 ) -> None:
     """Create a bucket."""
 
+    if default_retention is not None and not bucket_lock:
+        raise typer.BadParameter(
+            "--default-retention requires --bucket-lock."
+        )
     _preflight_create(ctx)
     result = _call(
         ctx,
@@ -130,18 +132,15 @@ def create_bucket(
         "object-storage/buckets",
         payload=compact_payload(
             name=name,
-            site_id=site_id,
-            site_name=site_name,
             region=region,
-            plan=plan,
             is_public=public,
-            bucket_lock_enabled=bucket_lock,
-            tags=tag or None,
-            metadata=(
-                parse_json_object(metadata, "--metadata")
-                if metadata is not None
+            object_lock_enabled=bucket_lock,
+            default_retention=(
+                parse_json_object(default_retention, "--default-retention")
+                if default_retention is not None
                 else None
             ),
+            tags=tag or None,
         ),
     )
     print_json(result)
