@@ -49,6 +49,10 @@ ibee compute sites
 ibee compute plans --vm-type cloud
 ibee compute images --vm-type gpu
 
+# Billing eligibility preflight (does not reserve funds)
+ibee billing eligibility
+ibee billing eligibility --sku-code STANDARD-2-8-50 --estimated-cost-minor 120000
+
 # Cloud VMs
 ibee vms list
 ibee vms get VM_ID
