@@ -200,7 +200,7 @@ def test_billing_denial_prevents_vm_create(monkeypatch):
     assert [name for name, _ in calls] == ["catalog", "billing"]
 
 
-def test_older_sdk_without_billing_resource_remains_compatible(monkeypatch):
+def test_older_sdk_without_billing_resource_fails_closed(monkeypatch):
     calls = []
     monkeypatch.setattr(
         vms,
@@ -220,8 +220,9 @@ def test_older_sdk_without_billing_resource_remains_compatible(monkeypatch):
             "image-1",
         ]
     )
-    assert result.exit_code == 0, result.output
-    assert [name for name, _ in calls] == ["catalog", "create"]
+    assert result.exit_code == 1
+    assert "does not support billing eligibility" in result.output
+    assert [name for name, _ in calls] == ["catalog"]
 
 
 @pytest.mark.parametrize("missing", ["plan", "template"])

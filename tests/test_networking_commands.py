@@ -34,12 +34,14 @@ class FakeResponse:
 def requests(monkeypatch):
     calls = []
 
-    # Keep these request-shape tests independent of whichever SDK release is
-    # installed. Billing behavior has dedicated typed-client tests.
-    sdk_without_billing = object()
-    monkeypatch.setattr(networking, "get_client", lambda _settings: sdk_without_billing)
-    monkeypatch.setattr(reserved_ips, "get_client", lambda _settings: sdk_without_billing)
-    monkeypatch.setattr(load_balancers, "get_client", lambda _settings: sdk_without_billing)
+    class Billing:
+        def check_resource_eligibility(self, **_kwargs):
+            return type("Decision", (), {"allowed": True, "reason": "ok"})()
+
+    client = type("Client", (), {"billing": Billing()})()
+    monkeypatch.setattr(networking, "get_client", lambda _settings: client)
+    monkeypatch.setattr(reserved_ips, "get_client", lambda _settings: client)
+    monkeypatch.setattr(load_balancers, "get_client", lambda _settings: client)
 
     def fake_request(method, url, **kwargs):
         calls.append({"method": method, "url": url, **kwargs})

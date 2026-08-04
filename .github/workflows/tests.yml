@@ -27,7 +27,7 @@ jobs:
 
       - name: Install IBEE Python SDK 0.3 candidate
         if: github.head_ref == 'ibee/public-api-v0.3' || github.ref_name == 'ibee/public-api-v0.3'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@ibee/sdk-release-readiness"
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@ibee/public-api-v0.3"
 
       - name: Install package with dev extras
         run: pip install -e ".[dev]"

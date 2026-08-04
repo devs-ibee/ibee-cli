@@ -228,7 +228,8 @@ def test_default_retention_requires_bucket_lock(requests):
         ],
     )
     assert result.exit_code != 0
-    assert "--default-retention requires --bucket-lock" in result.output
+    plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+    assert "--default-retention requires --bucket-lock" in plain_output
     assert requests == []
 
 

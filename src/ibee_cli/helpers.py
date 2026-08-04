@@ -58,19 +58,19 @@ def check_billing_eligibility(
     *,
     sku_code: str | None = None,
     estimated_cost_minor: int | None = None,
-) -> Any | None:
-    """Call the typed SDK billing preflight when the installed SDK supports it.
-
-    Product APIs still perform the authoritative billing admission check.  The
-    optional return keeps the CLI compatible with SDK releases predating the
-    public billing resource, without falling back to an untyped or portal-only
-    endpoint.
-    """
+) -> Any:
+    """Call the typed SDK billing preflight and fail closed if unavailable."""
 
     billing = getattr(client, "billing", None)
     method = getattr(billing, "check_resource_eligibility", None)
     if not callable(method):
-        return None
+        typer.secho(
+            "Creation blocked: the installed IBEE SDK does not support "
+            "billing eligibility. Upgrade the SDK and retry.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
     kwargs: dict[str, Any] = {"workspace_id": workspace_id}
     if sku_code:
         kwargs["sku_code"] = sku_code
@@ -85,7 +85,7 @@ def require_billing_eligibility(
     *,
     sku_code: str | None = None,
     estimated_cost_minor: int | None = None,
-) -> Any | None:
+) -> Any:
     """Fail before a billable create when the typed preflight denies it."""
 
     decision = check_billing_eligibility(
@@ -94,8 +94,6 @@ def require_billing_eligibility(
         sku_code=sku_code,
         estimated_cost_minor=estimated_cost_minor,
     )
-    if decision is None:
-        return None
     allowed = _field(decision, "allowed", "can_create", "canCreate")
     if allowed is True:
         return decision
@@ -146,8 +144,8 @@ def preflight_compute_plan(
     vm_type: str,
     site_id: str | None,
     plan_id: str,
-) -> Any | None:
-    """Preflight a VM create only when its catalog provides a trusted SKU."""
+) -> Any:
+    """Require a trusted catalog SKU and preflight a VM create."""
 
     sku_code = compute_plan_sku(
         client,
@@ -157,7 +155,13 @@ def preflight_compute_plan(
         plan_id=plan_id,
     )
     if not sku_code:
-        return None
+        typer.secho(
+            f"Creation blocked: billing SKU for compute plan {plan_id!r} "
+            "could not be resolved from the catalog.",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
     return require_billing_eligibility(client, workspace_id, sku_code=sku_code)
 
 

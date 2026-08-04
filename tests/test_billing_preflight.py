@@ -54,8 +54,8 @@ def test_manual_billing_eligibility_uses_typed_sdk(monkeypatch):
 def test_manual_billing_command_reports_old_sdk(monkeypatch):
     monkeypatch.setattr(billing, "get_client", lambda _settings: SimpleNamespace())
     result = runner.invoke(app, [*BASE_ARGS, "billing", "eligibility"])
-    assert result.exit_code == 2
-    assert "upgrade the SDK" in result.output
+    assert result.exit_code == 1
+    assert "Upgrade the SDK" in result.output
 
 
 @pytest.mark.parametrize(

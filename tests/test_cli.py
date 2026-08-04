@@ -152,10 +152,22 @@ def test_vm_create_forwards_required_catalog_ids(monkeypatch):
             calls.append(kwargs)
             return SimpleNamespace(operation_id="op-1")
 
+    class Catalog:
+        def list_compute_plans(self, **_kwargs):
+            return SimpleNamespace(
+                plans=[SimpleNamespace(plan_id="plan-1", code="STANDARD-2-4")]
+            )
+
+    class Billing:
+        def check_resource_eligibility(self, **_kwargs):
+            return SimpleNamespace(allowed=True, reason="ok")
+
     monkeypatch.setattr(
         vms,
         "get_client",
-        lambda settings: SimpleNamespace(cloud_vms=CloudVms()),
+        lambda settings: SimpleNamespace(
+            cloud_vms=CloudVms(), compute_catalog=Catalog(), billing=Billing()
+        ),
     )
     monkeypatch.setattr(vms, "finish_operation", lambda *args: None)
     result = runner.invoke(
@@ -190,10 +202,22 @@ def test_vm_create_omits_site_for_automatic_placement(monkeypatch):
             calls.append(kwargs)
             return SimpleNamespace(operation_id="op-1")
 
+    class Catalog:
+        def list_compute_plans(self, **_kwargs):
+            return SimpleNamespace(
+                plans=[SimpleNamespace(plan_id="plan-1", code="STANDARD-2-4")]
+            )
+
+    class Billing:
+        def check_resource_eligibility(self, **_kwargs):
+            return SimpleNamespace(allowed=True, reason="ok")
+
     monkeypatch.setattr(
         vms,
         "get_client",
-        lambda settings: SimpleNamespace(cloud_vms=CloudVms()),
+        lambda settings: SimpleNamespace(
+            cloud_vms=CloudVms(), compute_catalog=Catalog(), billing=Billing()
+        ),
     )
     monkeypatch.setattr(vms, "finish_operation", lambda *args: None)
     result = runner.invoke(
