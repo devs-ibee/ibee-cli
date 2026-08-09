@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import inspect
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -86,10 +87,11 @@ def test_access_help_has_no_password_value_option():
     for group in ("vms", "gpus"):
         result = invoke([group, "access-update", "--help"])
         assert result.exit_code == 0, result.output
-        assert "--password-stdin" in result.output
-        assert "--prompt-password" in result.output
-        assert "--new-password" not in result.output
-        assert "--password " not in result.output
+        plain_output = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "--password-stdin" in plain_output
+        assert "--prompt-password" in plain_output
+        assert "--new-password" not in plain_output
+        assert "--password " not in plain_output
 
 
 def test_interactive_password_prompt_is_hidden(calls):
