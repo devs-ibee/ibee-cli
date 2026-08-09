@@ -14,8 +14,10 @@ from ..helpers import (
     response_items,
 )
 from ..render import handle_api_errors, print_json, print_table
+from .vm_lifecycle import CLOUD_VM, register_vm_lifecycle
 
 app = typer.Typer(help="Cloud VMs", no_args_is_help=True)
+register_vm_lifecycle(app, CLOUD_VM)
 
 
 @app.command("list")
@@ -136,16 +138,25 @@ def vm_metrics(ctx: typer.Context, vm_id: str = typer.Argument(..., help="VM ID"
     print_json(result)
 
 
-def _power_action(ctx: typer.Context, vm_id: str, action: str, wait: bool) -> None:
+def _power_action(
+    ctx: typer.Context,
+    vm_id: str,
+    action: str,
+    wait: bool,
+    force: Optional[bool] = None,
+) -> None:
     settings = get_settings(ctx)
     workspace = require_workspace(settings)
     client = get_client(settings)
     method = getattr(client.cloud_vms, f"{action}_cloud_vm")
-    result = method(
+    power_args = dict(
         workspace_id=workspace,
         vm_id=vm_id,
         idempotency_key=new_idempotency_key(action, vm_id),
     )
+    if force is not None:
+        power_args["force"] = force
+    result = method(**power_args)
     finish_operation(settings, client, workspace, result, action.capitalize(), vm_id, wait)
 
 
@@ -154,10 +165,11 @@ def _power_action(ctx: typer.Context, vm_id: str, action: str, wait: bool) -> No
 def start_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
+    force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until started"),
 ) -> None:
     """Start a cloud VM."""
-    _power_action(ctx, vm_id, "start", wait)
+    _power_action(ctx, vm_id, "start", wait, force)
 
 
 @app.command("stop")
@@ -165,10 +177,11 @@ def start_vm(
 def stop_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
+    force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until stopped"),
 ) -> None:
     """Stop a cloud VM."""
-    _power_action(ctx, vm_id, "stop", wait)
+    _power_action(ctx, vm_id, "stop", wait, force)
 
 
 @app.command("reboot")
@@ -176,7 +189,8 @@ def stop_vm(
 def reboot_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
+    force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until rebooted"),
 ) -> None:
     """Reboot a cloud VM."""
-    _power_action(ctx, vm_id, "reboot", wait)
+    _power_action(ctx, vm_id, "reboot", wait, force)

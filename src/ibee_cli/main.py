@@ -9,6 +9,7 @@ from .commands import (
     billing,
     buckets,
     compute,
+    console,
     firewalls,
     gpus,
     load_balancers,
@@ -33,6 +34,7 @@ app.add_typer(vms.app, name="vms")
 app.add_typer(gpus.app, name="gpus")
 app.add_typer(ops.app, name="ops")
 app.add_typer(compute.app, name="compute")
+app.add_typer(console.app, name="console")
 app.add_typer(networking.app, name="vpcs")
 app.add_typer(reserved_ips.app, name="reserved-ips")
 app.add_typer(firewalls.app, name="firewalls")

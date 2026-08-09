@@ -20,6 +20,7 @@ def test_help_lists_command_groups():
         "secrets",
         "vms",
         "gpus",
+        "console",
         "vpcs",
         "reserved-ips",
         "firewalls",
@@ -99,15 +100,50 @@ def test_bucket_and_credential_command_registration():
         assert command in result.output
 
 
-def test_vm_groups_only_advertise_supported_commands():
+def test_vm_groups_advertise_complete_public_lifecycle():
     root = get_command(app)
-    expected = {"list", "get", "create", "delete", "metrics", "start", "stop", "reboot"}
+    expected = {
+        "list",
+        "get",
+        "create",
+        "delete",
+        "metrics",
+        "start",
+        "stop",
+        "reboot",
+        "access-update",
+        "resize-precheck",
+        "resize",
+        "resize-plan",
+        "resize-root-disk",
+        "volume-attach",
+        "volume-detach",
+        "mount-guidance-acknowledge",
+        "events",
+        "metrics-timeseries",
+        "bandwidth",
+        "snapshots",
+        "backup-policy",
+        "backups",
+    }
     assert set(root.commands["vms"].commands) == expected
     assert set(root.commands["gpus"].commands) == expected
-    assert "update" not in root.commands["vms"].commands
-    assert "network-interfaces" not in root.commands["vms"].commands
-    assert "update" not in root.commands["gpus"].commands
-    assert "network-interfaces" not in root.commands["gpus"].commands
+    assert set(root.commands["console"].commands) == {"create", "get", "close"}
+
+
+def test_vm_nested_lifecycle_commands_are_registered():
+    root = get_command(app)
+    for group in ("vms", "gpus"):
+        vm_group = root.commands[group]
+        assert set(vm_group.commands["snapshots"].commands) == {
+            "list", "create", "get", "delete", "restore", "restore-status"
+        }
+        assert set(vm_group.commands["backup-policy"].commands) == {
+            "get", "update", "enable", "disable", "reschedule"
+        }
+        assert set(vm_group.commands["backups"].commands) == {
+            "list", "create", "get", "restore", "restore-status"
+        }
 
 
 def test_compute_catalog_forwards_only_supported_image_filters(monkeypatch):

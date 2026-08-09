@@ -8,14 +8,14 @@ from ..context import get_client, get_settings, require_workspace
 from ..helpers import wait_for_operation
 from ..render import handle_api_errors, print_json
 
-app = typer.Typer(help="Async compute operations (VM create/delete/power)", no_args_is_help=True)
+app = typer.Typer(help="Async compute operations for cloud and GPU VMs", no_args_is_help=True)
 
 
 @app.command("get")
 @handle_api_errors
 def get_operation(
     ctx: typer.Context,
-    operation_id: str = typer.Argument(..., help="Operation ID from a create/delete/power action"),
+    operation_id: str = typer.Argument(..., help="Operation ID returned by an asynchronous VM action"),
     wait: bool = typer.Option(False, "--wait", help="Poll until the operation reaches a terminal state"),
 ) -> None:
     """Show the status of an async compute operation (cloud or GPU VM)."""

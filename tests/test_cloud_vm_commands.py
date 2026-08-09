@@ -270,6 +270,29 @@ def test_power_actions_are_not_wallet_blocked(monkeypatch, action):
     assert calls[0][1]["vm_id"] == "vm-1"
 
 
+@pytest.mark.parametrize("module,group", [(vms, "vms"), (gpus, "gpus")])
+def test_power_actions_forward_force_when_requested(monkeypatch, module, group):
+    calls = []
+
+    class PowerResource:
+        def __getattr__(self, name):
+            def call(**kwargs):
+                calls.append((name, kwargs))
+                return SimpleNamespace(operation_id="op-power")
+
+            return call
+
+    resource_name = "cloud_vms" if group == "vms" else "gpu_vms"
+    monkeypatch.setattr(
+        module,
+        "get_client",
+        lambda _settings: SimpleNamespace(**{resource_name: PowerResource()}),
+    )
+    result = _invoke([group, "stop", "vm-1", "--force"])
+    assert result.exit_code == 0, result.output
+    assert calls[0][1]["force"] is True
+
+
 def test_metrics_uses_current_sdk_method(monkeypatch):
     calls = []
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))

@@ -1,8 +1,9 @@
 """Shared helpers for write / async-operation commands.
 
-Compute writes (VM create/delete/power) return `202 + operation_id`; these
-helpers generate idempotency keys, optionally poll the operation to a terminal
-state (`--wait`), and parse secret values from the command line.
+Compute writes (VM create/delete/power, access, resize, and volume actions)
+return `202 + operation_id`; these helpers generate idempotency keys,
+optionally poll the operation to a terminal state (`--wait`), and parse secret
+values from the command line.
 """
 
 from __future__ import annotations

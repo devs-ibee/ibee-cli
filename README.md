@@ -70,9 +70,48 @@ ibee vms start VM_ID
 ibee vms stop VM_ID
 ibee vms reboot VM_ID
 ibee vms metrics VM_ID
+ibee vms metrics-timeseries VM_ID --range 24h
+ibee vms bandwidth VM_ID --month 2026-08
+ibee vms events VM_ID --limit 50
+
+# Access credentials. Passwords are never accepted as command arguments.
+printf '%s\n' "$NEW_VM_PASSWORD" | ibee vms access-update VM_ID --password-stdin --wait
+ibee vms access-update VM_ID --prompt-password --enable-password-auth --wait
+ibee vms access-update VM_ID --ssh-key-mode add --ssh-key-id SSH_KEY_ID --wait
+
+# Resize and persistent block volumes
+ibee vms resize-precheck VM_ID --cpu 4 --ram-mb 8192 --disk-gb 80
+ibee vms resize VM_ID --cpu 4 --ram-mb 8192 --disk-gb 80 --wait
+ibee vms resize-plan VM_ID --cpu 8 --ram-mb 16384 --confirm-downgrade --wait
+ibee vms resize-root-disk VM_ID --new-size-gb 120 --wait
+ibee vms volume-attach VM_ID VOLUME_ID --mode single-writer --wait
+ibee vms mount-guidance-acknowledge VM_ID VOLUME_ID
+ibee vms volume-detach VM_ID VOLUME_ID --confirm-unmounted --yes --wait
+
+# Snapshots and restores
+ibee vms snapshots list VM_ID
+ibee vms snapshots create VM_ID before-upgrade --mode all_attached
+ibee vms snapshots get SNAPSHOT_SET_ID
+ibee vms snapshots restore VM_ID SNAPSHOT_SET_ID \
+  --target-mode new_vm --target-vm-name restored-web --auto-start --yes
+ibee vms snapshots restore-status RESTORE_ID
+ibee vms snapshots delete SNAPSHOT_SET_ID --yes
+
+# Automated backup policy and manual backup runs
+ibee vms backup-policy get VM_ID
+ibee vms backup-policy enable VM_ID \
+  --frequency daily --timezone Asia/Kolkata --hour 2 --retention-days 30
+ibee vms backup-policy update VM_ID --frequency weekly --day-of-week 6
+ibee vms backup-policy reschedule VM_ID --next-run-at 2026-08-10T02:00:00Z
+ibee vms backup-policy disable VM_ID
+ibee vms backups list VM_ID
+ibee vms backups create VM_ID --reason before-release
+ibee vms backups get BACKUP_RUN_ID
+ibee vms backups restore VM_ID RECOVERY_POINT_ID --target-mode replace --yes
+ibee vms backups restore-status RESTORE_ID
 ibee vms delete VM_ID --yes --wait
 
-# GPU VMs (same verbs as Cloud VMs)
+# GPU VMs expose the same lifecycle, snapshot, backup, metrics, and volume commands
 ibee gpus list
 ibee gpus create train-01 --gpu-model A100 --gpu-count 1 \
   --plan-id PLAN_ID --template-id IMAGE_ID --wait
@@ -80,7 +119,15 @@ ibee gpus start VM_ID
 ibee gpus stop VM_ID
 ibee gpus reboot VM_ID
 ibee gpus metrics VM_ID
+ibee gpus resize-precheck VM_ID --cpu 16 --ram-mb 65536
+ibee gpus snapshots create VM_ID before-training --mode root_only
+ibee gpus backup-policy enable VM_ID --frequency daily --retention-days 14
 ibee gpus delete VM_ID --yes
+
+# Short-lived graphical console sessions for either VM type
+ibee console create VM_ID --vm-type cloud
+ibee console get SESSION_ID
+ibee console close SESSION_ID --yes
 
 # Async operations — poll a create/delete/power action to completion
 ibee ops get OPERATION_ID --wait
@@ -140,8 +187,18 @@ ibee load-balancers status LOAD_BALANCER_ID
 ibee load-balancers delete LOAD_BALANCER_ID --yes
 ```
 
-Create/delete/power actions are asynchronous; add `--wait` to block until the
-operation finishes, or poll it later with `ibee ops get`.
+Create/delete/power, access, resize, and volume actions are asynchronous; add
+`--wait` to block until the operation finishes, or poll the returned operation
+later with `ibee ops get`.
+
+Snapshot and backup restores can replace a VM, create a new VM, or restore one
+volume. They require `--yes` (or an interactive confirmation). Run the command
+with `--help` to see placement, plan, GPU, bandwidth, and selected-volume restore
+options. Snapshot deletion and volume detachment use the same confirmation rule.
+
+`access-update` never accepts a password value in the command line, so passwords
+do not appear in shell history or process listings. Use `--prompt-password` for
+an interactive hidden prompt, or pipe one line to `--password-stdin`.
 
 Bucket and VM placement are automatic when `--site-id` is omitted. Use
 `ibee compute sites` and pass `--site-id` only when placement must be pinned.
