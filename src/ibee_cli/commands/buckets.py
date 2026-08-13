@@ -102,11 +102,11 @@ def list_buckets(
 def create_bucket(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Bucket name (unique within the workspace)"),
-    region: Optional[str] = typer.Option(
-        None,
+    region: str = typer.Option(
+        ...,
         "--region",
         envvar="IBEE_REGION",
-        help="Optional storage region; omit when the environment has one region",
+        help="Required Object Storage region identifier (not a compute site ID)",
     ),
     public: bool = typer.Option(False, "--public", help="Allow public reads"),
     bucket_lock: bool = typer.Option(

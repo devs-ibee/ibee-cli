@@ -100,16 +100,15 @@ def test_create_bucket_request(requests, billing_calls):
     ]
 
 
-def test_create_bucket_can_use_automatic_placement(requests, billing_calls):
-    call = invoke(requests, ["buckets", "create", "automatic-assets"])
-    assert call["json"] == {
-        "name": "automatic-assets",
-        "is_public": False,
-        "object_lock_enabled": False,
-    }
-    assert billing_calls == [
-        {"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}
-    ]
+def test_create_bucket_requires_storage_region(requests, billing_calls):
+    result = runner.invoke(
+        app,
+        [*BASE_ARGS, "buckets", "create", "missing-region"],
+    )
+    assert result.exit_code == 2
+    assert "--region" in result.output
+    assert requests == []
+    assert billing_calls == []
 
 
 @pytest.mark.parametrize(
@@ -221,9 +220,11 @@ def test_default_retention_requires_bucket_lock(requests):
         [
             *BASE_ARGS,
             "buckets",
-            "create",
-            "locked-assets",
-            "--default-retention",
+                "create",
+                "locked-assets",
+                "--region",
+                "in-south-1",
+                "--default-retention",
             '{"mode":"GOVERNANCE","days":30}',
         ],
     )

@@ -26,7 +26,7 @@ Both can also be passed per command with `--token` and `--workspace`.
 ```bash
 # Object storage
 ibee buckets list
-ibee buckets create my-bucket
+ibee buckets create my-bucket --region in-south-1
 ibee buckets get my-bucket
 ibee buckets update my-bucket --public
 ibee buckets delete my-bucket --yes
