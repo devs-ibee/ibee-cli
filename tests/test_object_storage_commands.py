@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from ibee_cli.main import app
@@ -85,7 +86,7 @@ def test_create_bucket_requires_storage_region(requests):
         [*BASE_ARGS, "buckets", "create", "missing-region"],
     )
     assert result.exit_code == 2
-    assert "--region" in result.output
+    assert "--region" in unstyle(result.output)
     assert requests == []
 
 

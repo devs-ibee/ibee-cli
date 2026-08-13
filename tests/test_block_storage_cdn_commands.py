@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from ibee_cli.main import app
@@ -116,7 +117,7 @@ def test_block_create_requires_site_before_request(requests):
         [*BASE_ARGS, "block-storage", "create", "data", "--size-gb", "100"],
     )
     assert result.exit_code == 2
-    assert "--site-id" in result.output
+    assert "--site-id" in unstyle(result.output)
     assert requests == []
 
 
@@ -157,7 +158,7 @@ def test_cdn_purge_url_uses_openapi_paths_field(requests):
 def test_cdn_purge_selector_validation_prevents_request(requests):
     result = runner.invoke(app, [*BASE_ARGS, "cdn", "purge", "dist-1", "--mode", "url"])
     assert result.exit_code != 0
-    assert "requires at least one --path" in result.output
+    assert "requires at least one --path" in unstyle(result.output)
     assert requests == []
 
 
