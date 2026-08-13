@@ -6,8 +6,8 @@ from typing import List, Optional
 
 import typer
 
-from ..context import api_request, get_client, get_settings, require_workspace
-from ..helpers import compact_payload, require_billing_eligibility
+from ..context import api_request, get_settings
+from ..helpers import compact_payload
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="VPC networking, subnets, nodes, and NAT", no_args_is_help=True)
@@ -330,11 +330,6 @@ def create_nat_gateway(
 ) -> None:
     """Create a NAT gateway in a VPC."""
 
-    settings = get_settings(ctx)
-    require_billing_eligibility(
-        get_client(settings),
-        require_workspace(settings),
-    )
     _call(
         ctx,
         "POST",

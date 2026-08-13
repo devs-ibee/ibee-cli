@@ -6,11 +6,10 @@ from typing import List, Optional
 
 import typer
 
-from ..context import api_request, get_client, get_settings, require_workspace
+from ..context import api_request, get_settings
 from ..helpers import (
     compact_payload,
     parse_json_object,
-    require_billing_eligibility,
 )
 from ..render import handle_api_errors, print_json, print_table
 
@@ -42,17 +41,6 @@ def _call(
 ) -> object:
     return api_request(
         get_settings(ctx), method, path, params=params, json_body=payload
-    )
-
-
-def _preflight_create(ctx: typer.Context) -> None:
-    """Check the usage-based Object Storage SKU before a billable create."""
-
-    settings = get_settings(ctx)
-    require_billing_eligibility(
-        get_client(settings),
-        require_workspace(settings),
-        sku_code="OBJECTST-STD",
     )
 
 
@@ -125,7 +113,6 @@ def create_bucket(
         raise typer.BadParameter(
             "--default-retention requires --bucket-lock."
         )
-    _preflight_create(ctx)
     result = _call(
         ctx,
         "POST",
@@ -231,7 +218,6 @@ def create_credential(
         raise typer.BadParameter(
             "--allowed-bucket can only be used with --bucket-scope specific."
         )
-    _preflight_create(ctx)
     result = _call(
         ctx,
         "POST",

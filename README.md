@@ -62,6 +62,28 @@ ibee compute images --vm-type gpu
 # Billing admission (SKU must come from an IBEE product catalog)
 ibee billing eligibility --sku-code PLAN_SKU
 
+# Standalone Block Storage
+ibee block-storage list
+ibee block-storage create data --size-gb 100 --site-id SITE_ID
+ibee block-storage get VOLUME_ID
+ibee block-storage operations VOLUME_ID
+ibee block-storage attach VOLUME_ID --node-name NODE --vm-id VM_ID
+ibee block-storage detach VOLUME_ID --node-name NODE --confirm-unmounted
+ibee block-storage resize VOLUME_ID --new-size-gb 200
+ibee block-storage delete VOLUME_ID --yes
+
+# CDN
+ibee cdn list
+ibee cdn create assets --origin-id BUCKET_NAME
+ibee cdn get DISTRIBUTION_ID
+ibee cdn update DISTRIBUTION_ID --cache-policy media
+ibee cdn website set DISTRIBUTION_ID --index-document index.html
+ibee cdn domains create DISTRIBUTION_ID static.example.com
+ibee cdn domains verify DISTRIBUTION_ID static.example.com
+ibee cdn purge DISTRIBUTION_ID --mode all
+ibee cdn generate-url BUCKET_NAME path/to/object.jpg --expires-in 3600
+ibee cdn delete DISTRIBUTION_ID --yes
+
 # Cloud VMs
 ibee vms list
 ibee vms get VM_ID
@@ -203,12 +225,10 @@ an interactive hidden prompt, or pipe one line to `--password-stdin`.
 Bucket and VM placement are automatic when `--site-id` is omitted. Use
 `ibee compute sites` and pass `--site-id` only when placement must be pinned.
 
-Billable creates run a billing-eligibility preflight. The CLI includes a
-catalog SKU only when that SKU is published by IBEE; otherwise it performs a
-status-only admission check. The product API repeats the check immediately
-before provisioning and remains authoritative. Non-billable actions such as
-VM power, network attachment, updates, and deletes do not run a wallet
-preflight.
+Billable creates send one product request. The public gateway performs the
+authoritative, fail-closed billing decision before routing; a valid denial is
+returned without calling the product service. `ibee billing eligibility`
+remains available as an optional point-in-time preview.
 
 For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
 [API reference](https://ibee.ai/docs/api-reference). This keeps advanced

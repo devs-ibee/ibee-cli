@@ -10,7 +10,7 @@ from typing import Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import parse_value, require_billing_eligibility
+from ..helpers import parse_value
 from ..render import handle_api_errors, print_json, print_table
 
 app = typer.Typer(
@@ -118,9 +118,6 @@ def create_store(
     settings = get_settings(ctx)
     client = get_client(settings)
     workspace = require_workspace(settings)
-    require_billing_eligibility(
-        client, workspace, sku_code="SECRETMA-STD"
-    )
     result = client.secret_store.create_secret_store(
         workspace_id=workspace, name=name, description=description
     )
@@ -680,9 +677,6 @@ def create_secret(
     settings = get_settings(ctx)
     client = get_client(settings)
     workspace = require_workspace(settings)
-    require_billing_eligibility(
-        client, workspace, sku_code="SECRETMA-STD"
-    )
     result = client.secret_store.create_secret(
         workspace_id=workspace,
         store_id=store_id,

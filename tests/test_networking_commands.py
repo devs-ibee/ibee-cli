@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from typer.testing import CliRunner
 
-from ibee_cli.commands import load_balancers, networking, reserved_ips
 from ibee_cli.main import app
 
 runner = CliRunner()
@@ -33,15 +32,6 @@ class FakeResponse:
 @pytest.fixture
 def requests(monkeypatch):
     calls = []
-
-    class Billing:
-        def check_resource_eligibility(self, **_kwargs):
-            return type("Decision", (), {"allowed": True, "reason": "ok"})()
-
-    client = type("Client", (), {"billing": Billing()})()
-    monkeypatch.setattr(networking, "get_client", lambda _settings: client)
-    monkeypatch.setattr(reserved_ips, "get_client", lambda _settings: client)
-    monkeypatch.setattr(load_balancers, "get_client", lambda _settings: client)
 
     def fake_request(method, url, **kwargs):
         calls.append({"method": method, "url": url, **kwargs})

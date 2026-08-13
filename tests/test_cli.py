@@ -19,7 +19,9 @@ def test_help_lists_command_groups():
     assert result.exit_code == 0
     for group in (
         "billing",
+        "block-storage",
         "buckets",
+        "cdn",
         "secrets",
         "vms",
         "gpus",
@@ -41,7 +43,9 @@ def test_version():
 def test_subcommand_help():
     for args in (
         ["billing", "--help"],
+        ["block-storage", "--help"],
         ["buckets", "--help"],
+        ["cdn", "--help"],
         ["secrets", "--help"],
         ["vms", "--help"],
         ["gpus", "--help"],

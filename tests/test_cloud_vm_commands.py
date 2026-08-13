@@ -134,7 +134,7 @@ def test_get_forwards_workspace_and_vm_id(monkeypatch):
     assert calls == [("get", {"workspace_id": "973318", "vm_id": "vm-1"})]
 
 
-def test_create_resolves_plan_sku_preflights_then_submits(monkeypatch):
+def test_create_submits_once_for_edge_admission(monkeypatch):
     calls = []
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))
     result = _invoke(
@@ -156,17 +156,8 @@ def test_create_resolves_plan_sku_preflights_then_submits(monkeypatch):
         ]
     )
     assert result.exit_code == 0, result.output
-    assert [name for name, _ in calls] == ["catalog", "billing", "create", "operation"]
-    assert calls[0][1] == {
-        "workspace_id": "973318",
-        "vm_type": "cloud",
-        "site_id": "site-1",
-    }
-    assert calls[1][1] == {
-        "workspace_id": "973318",
-        "sku_code": "STANDARD-2-4",
-    }
-    create = calls[2][1]
+    assert [name for name, _ in calls] == ["create", "operation"]
+    create = calls[0][1]
     assert create["workspace_id"] == "973318"
     assert create["site_id"] == "site-1"
     assert create["plan_id"] == "plan-1"
@@ -175,54 +166,6 @@ def test_create_resolves_plan_sku_preflights_then_submits(monkeypatch):
     assert create["tags"] == ["production"]
     assert create["idempotency_key"].startswith("cli-vm-create-web-")
     assert "Create completed" in result.output
-
-
-def test_billing_denial_prevents_vm_create(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        vms, "get_client", lambda _settings: _client(calls, allowed=False)
-    )
-    result = _invoke(
-        [
-            "vms",
-            "create",
-            "web",
-            "--site-id",
-            "site-1",
-            "--plan-id",
-            "plan-1",
-            "--template-id",
-            "image-1",
-        ]
-    )
-    assert result.exit_code == 1
-    assert "insufficient_balance" in result.output
-    assert [name for name, _ in calls] == ["catalog", "billing"]
-
-
-def test_older_sdk_without_billing_resource_fails_closed(monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        vms,
-        "get_client",
-        lambda _settings: _client(calls, include_billing=False),
-    )
-    result = _invoke(
-        [
-            "vms",
-            "create",
-            "web",
-            "--site-id",
-            "site-1",
-            "--plan-id",
-            "plan-1",
-            "--template-id",
-            "image-1",
-        ]
-    )
-    assert result.exit_code == 1
-    assert "does not support billing eligibility" in result.output
-    assert [name for name, _ in calls] == ["catalog"]
 
 
 @pytest.mark.parametrize("missing", ["plan", "template"])
@@ -349,7 +292,7 @@ def test_gpu_list_also_handles_bare_sdk_list(monkeypatch):
     assert "A100" in result.output
 
 
-def test_gpu_create_resolves_catalog_sku_and_preflights(monkeypatch):
+def test_gpu_create_submits_once_for_edge_admission(monkeypatch):
     calls = []
 
     class Catalog:
@@ -386,5 +329,4 @@ def test_gpu_create_resolves_catalog_sku_and_preflights(monkeypatch):
         ]
     )
     assert result.exit_code == 0, result.output
-    assert [name for name, _ in calls] == ["catalog", "billing", "create"]
-    assert calls[1][1]["sku_code"] == "GPU-A100-1"
+    assert [name for name, _ in calls] == ["create"]

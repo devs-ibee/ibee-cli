@@ -10,7 +10,6 @@ from ..context import get_client, get_settings, require_workspace
 from ..helpers import (
     finish_operation,
     new_idempotency_key,
-    preflight_compute_plan,
     response_items,
 )
 from ..render import handle_api_errors, print_json, print_table
@@ -82,13 +81,6 @@ def create_gpu_vm(
     settings = get_settings(ctx)
     workspace = require_workspace(settings)
     client = get_client(settings)
-    preflight_compute_plan(
-        client,
-        workspace,
-        vm_type="gpu",
-        site_id=site_id,
-        plan_id=plan_id,
-    )
     create_args = dict(
         workspace_id=workspace,
         idempotency_key=new_idempotency_key("gpu-create", name),

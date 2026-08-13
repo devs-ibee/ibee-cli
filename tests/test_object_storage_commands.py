@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import re
-from types import SimpleNamespace
-
 import pytest
 from typer.testing import CliRunner
 
@@ -42,22 +40,6 @@ def requests(monkeypatch):
     return calls
 
 
-@pytest.fixture
-def billing_calls(monkeypatch):
-    calls = []
-
-    class Billing:
-        def check_resource_eligibility(self, **kwargs):
-            calls.append(kwargs)
-            return SimpleNamespace(allowed=True, reason="ok")
-
-    monkeypatch.setattr(
-        "ibee_cli.commands.buckets.get_client",
-        lambda _settings: SimpleNamespace(billing=Billing()),
-    )
-    return calls
-
-
 def invoke(requests, args):
     result = runner.invoke(app, [*BASE_ARGS, *args])
     assert result.exit_code == 0, result.output
@@ -68,7 +50,7 @@ def invoke(requests, args):
     return call
 
 
-def test_create_bucket_request(requests, billing_calls):
+def test_create_bucket_request(requests):
     call = invoke(
         requests,
         [
@@ -95,12 +77,9 @@ def test_create_bucket_request(requests, billing_calls):
         "default_retention": {"mode": "GOVERNANCE", "days": 30},
         "tags": ["production"],
     }
-    assert billing_calls == [
-        {"workspace_id": "973318", "sku_code": "OBJECTST-STD"}
-    ]
 
 
-def test_create_bucket_requires_storage_region(requests, billing_calls):
+def test_create_bucket_requires_storage_region(requests):
     result = runner.invoke(
         app,
         [*BASE_ARGS, "buckets", "create", "missing-region"],
@@ -108,7 +87,6 @@ def test_create_bucket_requires_storage_region(requests, billing_calls):
     assert result.exit_code == 2
     assert "--region" in result.output
     assert requests == []
-    assert billing_calls == []
 
 
 @pytest.mark.parametrize(
@@ -189,19 +167,11 @@ def test_bucket_resource_requests(requests, args, method, path, payload):
         ),
     ],
 )
-def test_s3_credential_requests(
-    requests, billing_calls, args, method, path, payload
-):
+def test_s3_credential_requests(requests, args, method, path, payload):
     call = invoke(requests, args)
     assert call["method"] == method
     assert call["url"].endswith(path)
     assert call["json"] == payload
-    expected = (
-        [{"workspace_id": "973318", "sku_code": "OBJECTST-STD"}]
-        if method == "POST"
-        else []
-    )
-    assert billing_calls == expected
 
 
 def test_bucket_update_requires_visibility_choice(requests):

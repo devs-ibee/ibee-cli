@@ -6,12 +6,11 @@ from typing import Optional
 
 import typer
 
-from ..context import api_request, get_client, get_settings, require_workspace
+from ..context import api_request, get_settings
 from ..helpers import (
     compact_payload,
     parse_json_array,
     parse_json_object,
-    require_billing_eligibility,
 )
 from ..render import handle_api_errors, print_json
 
@@ -42,15 +41,6 @@ def _optional_object(raw: Optional[str], option_name: str):
 
 def _optional_array(raw: Optional[str], option_name: str):
     return parse_json_array(raw, option_name) if raw is not None else None
-
-
-def _preflight_create(ctx: typer.Context) -> None:
-    settings = get_settings(ctx)
-    require_billing_eligibility(
-        get_client(settings),
-        require_workspace(settings),
-        sku_code="LOADBALA-STD",
-    )
 
 
 def _payload(
@@ -118,7 +108,6 @@ def create_l4_load_balancer(
 ) -> None:
     """Create an L4 load balancer."""
 
-    _preflight_create(ctx)
     _call(
         ctx,
         "POST",
@@ -151,7 +140,6 @@ def create_l7_load_balancer(
 ) -> None:
     """Create an L7 load balancer."""
 
-    _preflight_create(ctx)
     _call(
         ctx,
         "POST",
