@@ -26,8 +26,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install IBEE Python SDK 0.3 candidate
-        if: github.head_ref == 'ibee/public-api-v0.3' || github.ref_name == 'ibee/public-api-v0.3'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@ibee/public-api-v0.3"
+        if: endsWith(github.head_ref, 'public-api-v0.3') || endsWith(github.ref_name, 'public-api-v0.3')
+        env:
+          SDK_REF: ${{ github.head_ref || github.ref_name }}
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
 
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
