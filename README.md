@@ -224,7 +224,8 @@ ibee --json buckets list
 
 The CLI targets production at `https://api.ibee.ai/v1` by default. Use `--dev`
 (or `IBEE_ENV=dev`) for `https://api.ibee.co.in/v1`, or `--base-url` for a
-custom endpoint:
+custom endpoint. Match production tokens to `.ai` and development tokens to
+`.co.in`; resource IDs are environment-specific:
 
 ```bash
 ibee --dev buckets list
