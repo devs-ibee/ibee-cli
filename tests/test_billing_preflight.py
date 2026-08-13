@@ -12,7 +12,7 @@ from ibee_cli.helpers import require_billing_eligibility
 from ibee_cli.main import app
 
 runner = CliRunner()
-BASE_ARGS = ["--token", "test-token", "--workspace", "workspace-123"]
+BASE_ARGS = ["--token", "test-token", "--workspace", "973318"]
 
 
 class Billing:
@@ -44,7 +44,7 @@ def test_manual_billing_eligibility_uses_typed_sdk(monkeypatch):
     assert result.exit_code == 0, result.output
     assert calls == [
         {
-            "workspace_id": "workspace-123",
+            "workspace_id": "973318",
             "sku_code": "STANDARD-2-4",
             "estimated_cost_minor": 12500,
         }
@@ -98,7 +98,7 @@ def test_direct_api_billable_creates_preflight_before_post(
     monkeypatch.setattr("ibee_cli.context.httpx.request", request)
     result = runner.invoke(app, [*BASE_ARGS, *args])
     assert result.exit_code == 0, result.output
-    expected = {"workspace_id": "workspace-123"}
+    expected = {"workspace_id": "973318"}
     if sku is not None:
         expected["sku_code"] = sku
     assert events[0] == expected
@@ -126,7 +126,7 @@ def test_direct_api_billing_denial_prevents_post(monkeypatch):
     )
     assert result.exit_code == 1
     assert "insufficient_balance" in result.output
-    assert events == [{"workspace_id": "workspace-123"}]
+    assert events == [{"workspace_id": "973318"}]
 
 
 @pytest.mark.parametrize(
@@ -202,8 +202,8 @@ def test_secret_store_and_secret_create_use_stable_sku(monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert billing_calls == [
-        {"workspace_id": "workspace-123", "sku_code": "SECRETMA-STD"},
-        {"workspace_id": "workspace-123", "sku_code": "SECRETMA-STD"},
+        {"workspace_id": "973318", "sku_code": "SECRETMA-STD"},
+        {"workspace_id": "973318", "sku_code": "SECRETMA-STD"},
     ]
     assert [name for name, _ in resource_calls] == ["store", "secret"]
 
@@ -214,6 +214,6 @@ def test_malformed_typed_billing_response_fails_closed():
     )
     with pytest.raises(Exception) as exc_info:
         require_billing_eligibility(
-            client, "workspace-123", sku_code="STANDARD-2-4"
+            client, "973318", sku_code="STANDARD-2-4"
         )
     assert getattr(exc_info.value, "exit_code", None) == 1

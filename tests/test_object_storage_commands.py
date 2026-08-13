@@ -15,7 +15,7 @@ BASE_ARGS = [
     "--token",
     "test-token",
     "--workspace",
-    "workspace-123",
+    "973318",
     "--base-url",
     "https://gateway.example/v1",
 ]
@@ -63,7 +63,7 @@ def invoke(requests, args):
     assert result.exit_code == 0, result.output
     assert len(requests) == 1
     call = requests[0]
-    assert call["params"]["workspace_id"] == "workspace-123"
+    assert call["params"]["workspace_id"] == "973318"
     assert call["headers"]["Authorization"] == "Bearer test-token"
     return call
 
@@ -96,7 +96,7 @@ def test_create_bucket_request(requests, billing_calls):
         "tags": ["production"],
     }
     assert billing_calls == [
-        {"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}
+        {"workspace_id": "973318", "sku_code": "OBJECTST-STD"}
     ]
 
 
@@ -197,7 +197,7 @@ def test_s3_credential_requests(
     assert call["url"].endswith(path)
     assert call["json"] == payload
     expected = (
-        [{"workspace_id": "workspace-123", "sku_code": "OBJECTST-STD"}]
+        [{"workspace_id": "973318", "sku_code": "OBJECTST-STD"}]
         if method == "POST"
         else []
     )

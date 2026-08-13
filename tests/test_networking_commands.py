@@ -13,7 +13,7 @@ BASE_ARGS = [
     "--token",
     "test-token",
     "--workspace",
-    "workspace-123",
+    "973318",
     "--base-url",
     "https://gateway.example/v1",
 ]
@@ -57,7 +57,7 @@ def invoke(requests, args):
     assert result.exit_code == 0, result.output
     assert len(requests) == 1
     call = requests[0]
-    assert call["params"]["workspace_id"] == "workspace-123"
+    assert call["params"]["workspace_id"] == "973318"
     assert call["headers"]["Authorization"] == "Bearer test-token"
     assert call["timeout"] == 30
     return call

@@ -15,7 +15,7 @@ from ibee_cli.commands import console, vm_lifecycle
 from ibee_cli.main import app
 
 runner = CliRunner()
-BASE = ["--token", "test-token", "--workspace", "workspace-123"]
+BASE = ["--token", "test-token", "--workspace", "973318"]
 
 
 class RecordingResource:
@@ -75,7 +75,7 @@ def test_access_password_is_stdin_only_and_never_echoed(calls, group, fragment):
     name, args, kwargs = calls[0]
     assert name == f"update_{fragment}_access"
     assert args == ("vm-1",)
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     assert kwargs["new_password"] == "super-secret-value"
     assert kwargs["password_auth_enabled"] is True
     kind = "cloud" if group == "vms" else "gpu"
@@ -129,7 +129,7 @@ def test_core_lifecycle_commands_forward_to_typed_sdk(calls, group, fragment, ar
     name, positional, kwargs = calls[0]
     assert name == method.format(f=fragment)
     assert positional == ("vm-1",)
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     for key, value in expected.items():
         assert kwargs[key] == value
     if name.startswith(("resize_", "attach_", "detach_")):
@@ -159,7 +159,7 @@ def test_snapshot_lifecycle_forwards_to_typed_sdk(calls, group, fragment, args, 
     name, positional, kwargs = calls[0]
     assert name == method.format(f=fragment)
     assert positional == positionals
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     for key, value in expected.items():
         assert kwargs[key] == value
     resource_name = "cloud_vms" if group == "vms" else "gpu_vms"
@@ -186,7 +186,7 @@ def test_backup_policy_lifecycle_forwards_to_typed_sdk(calls, group, fragment, a
     name, positional, kwargs = calls[0]
     assert name == method.format(f=fragment)
     assert positional == positionals
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     for key, value in expected.items():
         assert kwargs[key] == value
     resource_name = "cloud_vms" if group == "vms" else "gpu_vms"
@@ -213,7 +213,7 @@ def test_backup_run_lifecycle_forwards_to_typed_sdk(calls, group, fragment, args
     name, positional, kwargs = calls[0]
     assert name == method.format(f=fragment)
     assert positional == positionals
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     for key, value in expected.items():
         assert kwargs[key] == value
     resource_name = "cloud_vms" if group == "vms" else "gpu_vms"
@@ -246,7 +246,7 @@ def test_console_session_lifecycle(calls, args, method, positionals, expected):
     name, positional, kwargs = calls[0]
     assert name == method
     assert positional == positionals
-    assert kwargs["workspace_id"] == "workspace-123"
+    assert kwargs["workspace_id"] == "973318"
     for key, value in expected.items():
         assert kwargs[key] == value
     assert_sdk_transport("vm_console", name, positional, kwargs)

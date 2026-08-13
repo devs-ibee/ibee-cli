@@ -11,7 +11,7 @@ from ibee_cli.commands import gpus, ops, vms
 from ibee_cli.main import app
 
 runner = CliRunner()
-BASE_ARGS = ["--token", "test-token", "--workspace", "workspace-123"]
+BASE_ARGS = ["--token", "test-token", "--workspace", "973318"]
 
 
 class FakeBilling:
@@ -109,7 +109,7 @@ def test_list_renders_bare_sdk_list(monkeypatch):
     assert result.exit_code == 0, result.output
     assert "web" in result.output
     assert "203.0.113.5" in result.output
-    assert calls == [("list", {"workspace_id": "workspace-123"})]
+    assert calls == [("list", {"workspace_id": "973318"})]
 
 
 def test_list_json_serializes_bare_sdk_models(monkeypatch):
@@ -131,7 +131,7 @@ def test_get_forwards_workspace_and_vm_id(monkeypatch):
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))
     result = _invoke(["vms", "get", "vm-1"])
     assert result.exit_code == 0, result.output
-    assert calls == [("get", {"workspace_id": "workspace-123", "vm_id": "vm-1"})]
+    assert calls == [("get", {"workspace_id": "973318", "vm_id": "vm-1"})]
 
 
 def test_create_resolves_plan_sku_preflights_then_submits(monkeypatch):
@@ -158,16 +158,16 @@ def test_create_resolves_plan_sku_preflights_then_submits(monkeypatch):
     assert result.exit_code == 0, result.output
     assert [name for name, _ in calls] == ["catalog", "billing", "create", "operation"]
     assert calls[0][1] == {
-        "workspace_id": "workspace-123",
+        "workspace_id": "973318",
         "vm_type": "cloud",
         "site_id": "site-1",
     }
     assert calls[1][1] == {
-        "workspace_id": "workspace-123",
+        "workspace_id": "973318",
         "sku_code": "STANDARD-2-4",
     }
     create = calls[2][1]
-    assert create["workspace_id"] == "workspace-123"
+    assert create["workspace_id"] == "973318"
     assert create["site_id"] == "site-1"
     assert create["plan_id"] == "plan-1"
     assert create["template_id"] == "image-1"
@@ -266,7 +266,7 @@ def test_power_actions_are_not_wallet_blocked(monkeypatch, action):
     result = _invoke(["vms", action, "vm-1"])
     assert result.exit_code == 0, result.output
     assert [name for name, _ in calls] == [action]
-    assert calls[0][1]["workspace_id"] == "workspace-123"
+    assert calls[0][1]["workspace_id"] == "973318"
     assert calls[0][1]["vm_id"] == "vm-1"
 
 
@@ -299,7 +299,7 @@ def test_metrics_uses_current_sdk_method(monkeypatch):
     result = _invoke(["vms", "metrics", "vm-1"])
     assert result.exit_code == 0, result.output
     assert calls == [
-        ("metrics", {"workspace_id": "workspace-123", "vm_id": "vm-1"})
+        ("metrics", {"workspace_id": "973318", "vm_id": "vm-1"})
     ]
 
 
@@ -312,7 +312,7 @@ def test_operation_status_get_and_wait(monkeypatch):
     assert calls == [
         (
             "operation",
-            {"operation_id": "op-1", "workspace_id": "workspace-123"},
+            {"operation_id": "op-1", "workspace_id": "973318"},
         )
     ]
 

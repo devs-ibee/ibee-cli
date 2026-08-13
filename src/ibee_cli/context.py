@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -13,6 +14,8 @@ from ibee.environment import IbeeEnvironment
 
 PRODUCTION_API_BASE_URL = "https://api.ibee.ai/v1"
 DEVELOPMENT_API_BASE_URL = "https://api.ibee.co.in/v1"
+WORKSPACE_ID_PATTERN = re.compile(r"^[1-9][0-9]*$")
+WORKSPACE_ID_ERROR = "workspace_id must be a positive numeric string (for example, '710995')."
 
 
 @dataclass
@@ -50,8 +53,11 @@ def require_token(settings: Settings) -> str:
 
 
 def require_workspace(settings: Settings) -> str:
-    if settings.workspace:
-        return settings.workspace
+    if settings.workspace is not None:
+        if WORKSPACE_ID_PATTERN.fullmatch(settings.workspace):
+            return settings.workspace
+        typer.secho(WORKSPACE_ID_ERROR, fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=2)
     typer.secho(
         "No workspace. Set IBEE_WORKSPACE_ID (or pass --workspace).",
         fg=typer.colors.RED,
@@ -129,7 +135,7 @@ def settings_from_env(
 ) -> Settings:
     return Settings(
         token=token or os.environ.get("IBEE_TOKEN") or os.environ.get("IBEE_API_TOKEN"),
-        workspace=workspace or os.environ.get("IBEE_WORKSPACE_ID"),
+        workspace=workspace if workspace is not None else os.environ.get("IBEE_WORKSPACE_ID"),
         dev=dev or os.environ.get("IBEE_ENV", "").lower() in ("dev", "development"),
         base_url=base_url or os.environ.get("IBEE_BASE_URL"),
         as_json=as_json,

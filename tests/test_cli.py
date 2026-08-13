@@ -63,6 +63,18 @@ def test_missing_token_is_clean_error(monkeypatch):
     assert "No API token" in result.output
 
 
+def test_invalid_workspace_is_rejected_before_api_request():
+    message = "workspace_id must be a positive numeric string (for example, '710995')."
+    for workspace_id in ("0", "01", "-1", "abc", "1.0"):
+        result = runner.invoke(
+            app,
+            ["--workspace", workspace_id, "buckets", "list"],
+            env={"IBEE_TOKEN": "test-token"},
+        )
+        assert result.exit_code == 2
+        assert message in result.output
+
+
 def test_secret_store_help_lists_complete_lifecycle():
     result = runner.invoke(app, ["secrets", "--help"])
     assert result.exit_code == 0
