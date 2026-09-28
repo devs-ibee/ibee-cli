@@ -94,8 +94,10 @@ def test_billable_creates_send_one_product_request_for_edge_admission(gw, args, 
     assert not any(c.path.startswith("billing") for c in gw.calls)
 
 
-def test_secret_store_and_secret_create_rely_on_edge_admission(monkeypatch):
-    billing_calls = []
+def test_secret_store_and_secret_create_run_the_portal_billing_preflight(monkeypatch):
+    """The portal checks SECRETMA-STD before a store or secret create; the CLI asks the
+    SDK to do the same by default, and --no-billing-check turns it off."""
+
     resource_calls = []
 
     class SecretStore:
@@ -103,33 +105,29 @@ def test_secret_store_and_secret_create_rely_on_edge_admission(monkeypatch):
             resource_calls.append(("store", kwargs))
             return SimpleNamespace(id="store-1")
 
-        def create_secret(self, **kwargs):
+        def create_secret(self, *args, **kwargs):
             resource_calls.append(("secret", kwargs))
             return SimpleNamespace(id="secret-1")
 
-    client = SimpleNamespace(
-        billing=Billing(billing_calls), secret_store=SecretStore()
-    )
+    client = SimpleNamespace(billing=Billing([]), secret_store=SecretStore())
     monkeypatch.setattr(secrets, "get_client", lambda _settings: client)
 
+    secret_args = ["secrets", "create", "--store-id", "store-1", "--name", "db-url", "--value", "url=postgres://db"]
+    for extra in ([], ["--no-billing-check"]):
+        result = runner.invoke(app, [*BASE_ARGS, "secrets", "stores", "create", "production", *extra])
+        assert result.exit_code == 0, result.output
+        result = runner.invoke(app, [*BASE_ARGS, *secret_args, *extra])
+        assert result.exit_code == 0, result.output
+    assert [(name, kwargs["preflight_billing"]) for name, kwargs in resource_calls] == [
+        ("store", True),
+        ("secret", True),
+        ("store", False),
+        ("secret", False),
+    ]
+    # The global --check-billing forces the check even with --no-billing-check.
+    resource_calls.clear()
     result = runner.invoke(
-        app, [*BASE_ARGS, "secrets", "stores", "create", "production"]
+        app, [*BASE_ARGS, "--check-billing", "secrets", "stores", "create", "production", "--no-billing-check"]
     )
     assert result.exit_code == 0, result.output
-    result = runner.invoke(
-        app,
-        [
-            *BASE_ARGS,
-            "secrets",
-            "create",
-            "--store-id",
-            "store-1",
-            "--name",
-            "db-url",
-            "--value",
-            "url=postgres://db",
-        ],
-    )
-    assert result.exit_code == 0, result.output
-    assert billing_calls == []
-    assert [name for name, _ in resource_calls] == ["store", "secret"]
+    assert resource_calls[0][1]["preflight_billing"] is True

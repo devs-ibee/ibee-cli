@@ -24,6 +24,7 @@ from ibee_cli.commands import (
     load_balancers,
     networking,
     reserved_ips,
+    secrets,
 )
 from ibee_cli.main import app
 
@@ -102,11 +103,11 @@ class Gateway:
 
 
 def install(monkeypatch) -> Gateway:
-    """Route every networking and storage command's SDK client to a new scripted gateway."""
+    """Route every networking, storage and Secret Store command's SDK client to a new scripted gateway."""
 
     gateway = Gateway()
     factory = lambda _settings: gateway.client()  # noqa: E731
-    for module in (networking, reserved_ips, firewalls, load_balancers, block_storage, buckets, cdn, context):
+    for module in (networking, reserved_ips, firewalls, load_balancers, block_storage, buckets, cdn, secrets, context):
         monkeypatch.setattr(module, "get_client", factory)
     return gateway
 
