@@ -35,6 +35,7 @@ from ibee.errors import (
     OperationTimeoutError,
     OrganizationRestrictedError,
     OrganizationSuspendedError,
+    ReservedIpTargetUnsupportedError,
     ResizeBlockedError,
     WorkspaceNotAllowedError,
 )
@@ -417,6 +418,12 @@ def api_error_lines(exc: ApiError) -> list[str]:
                 lines.append(TOPUP_GUIDANCE)
             return lines
         return [f"Forbidden (403): {message}"]
+    if isinstance(exc, ReservedIpTargetUnsupportedError):
+        return [
+            "Not supported (404): this VM has no VPC attachment. To keep its current public IP "
+            "as a Reserved IP use 'ibee reserved-ips convert --vm-id VM_ID --site-id SITE_ID'; "
+            "attaching a held Reserved IP to a VM outside a VPC is not yet available in the public API."
+        ]
     if status == 404:
         return ["Not found (404): the resource does not exist in this workspace."]
     if isinstance(exc, ResizeBlockedError):
@@ -502,6 +509,9 @@ def handle_api_errors(fn: Callable) -> Callable:
         except ApiError as exc:
             for line in api_error_lines(exc):
                 _err(line)
+            hint = getattr(exc, "cli_hint", None)
+            if hint:
+                _err(hint, typer.colors.YELLOW)
             if exc.status_code in (429, 502, 503, 504) or (exc.status_code or 0) >= 500:
                 retry_hint(getattr(exc, "idempotency_key", None))
             raise typer.Exit(code=EXIT_FAILURE)

@@ -9,13 +9,16 @@ and parse structured values from the command line.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import time
-from collections.abc import Mapping, Sequence
+import warnings
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
 
 import typer
+from ibee.core.api_error import ApiError
 from ibee.errors import BillingDeniedError, OperationFailedError, OperationTimeoutError
 from ibee.idempotency import build_idempotency_key
 from ibee.operations import FAILURE_STATUSES, SUCCESS_STATUSES, poll_until
@@ -588,6 +591,49 @@ def preflight_create(
 
 
 # ---------------------------------------------------------------------------
+# SDK warnings and error hints
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def sdk_warnings() -> Iterator[None]:
+    """Print warnings the SDK raises during a call (for example a missing billing
+    catalog, or a deprecated option) as ``Warning: ...`` lines on stderr."""
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        try:
+            yield
+        finally:
+            seen: set[str] = set()
+            for item in caught:
+                text = str(item.message)
+                if text in seen:
+                    continue
+                seen.add(text)
+                typer.secho(f"Warning: {text}", fg=typer.colors.YELLOW, err=True)
+
+
+@contextlib.contextmanager
+def api_hints(hints: Mapping[int, str]) -> Iterator[None]:
+    """Attach a follow-up line to API errors with the given status codes.
+
+    ``handle_api_errors`` prints the hint after the usual error message.
+    """
+
+    try:
+        yield
+    except ApiError as exc:
+        hint = hints.get(exc.status_code or 0)
+        if hint and not getattr(exc, "cli_hint", None):
+            try:
+                exc.cli_hint = hint  # type: ignore[attr-defined]
+            except AttributeError:  # pragma: no cover - slotted error classes
+                pass
+        raise
+
+
+# ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
@@ -650,6 +696,8 @@ def compact_payload(**values):
 
 __all__ = [
     "IbeeValidationError",
+    "api_hints",
+    "sdk_warnings",
     "WaitConfig",
     "check_billing_eligibility",
     "check_state_option",

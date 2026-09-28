@@ -59,6 +59,42 @@ Requires `ibee>=0.4.0,<0.5.0`.
   (not yet part of the published API contract; behaviour may change).
 - Validation errors print their details (for example a resize precheck's decision,
   reasons and warnings), and a 409 resize conflict prints its decision and reasons.
+- Networking follows the portal (see "Networking rules the CLI applies" in the
+  README):
+  - `vpcs sites --available-only`; `vpcs create --nat-billing-catalog[-file]`
+    (alias `--nat-billing-catalog-json`) and `--check-site/--no-check-site`;
+    `vpcs delete --delete-nat-gateway [--nat-ip-action reserve|release]
+    [--nat-billing-catalog[-file]] --check-state/--no-check-state`.
+  - `vpcs subnets create --check-state/--no-check-state`; `vpcs nodes attach
+    --private-ip` and `--check-state/--no-check-state`.
+  - `vpcs nat create --billing-catalog[-file] --preflight --check-state`;
+    `vpcs nat delete --ip-action reserve|release --billing-catalog[-file] --wait
+    --check-state`; new `vpcs nat replace-ip`.
+  - `vpcs forwarding create|update --target vm|vip --target-vm-id` and
+    `--check-state`; new `vpcs forwarding enable` and `disable`.
+  - New `vpcs virtual-ips list|get|create|delete|attach-ip|detach-ip`.
+  - `reserved-ips reserve --billing-catalog[-file] --check-billing`; `attach
+    --detach-from-service`; `--check-state/--no-check-state` on attach, move,
+    detach and release; new `reserved-ips convert` and `reserved-ips
+    attach-virtual-ip` (hidden alias `attach-vip`).
+  - `firewalls list --summary --all`; `firewalls rules create|update --port 22|8000-8080
+    --source CIDR[,CIDR]` (`--remote-target` still works); `--check-state` on rule
+    update and delete; `firewalls attachments list --limit --skip`.
+  - Load balancers: `--backend TYPE:TARGET:PORT[:WEIGHT][:tls]`, `--algorithm`,
+    `--timeout-ms`, `--retries`, `--per-retry-timeout-ms`, `--retry-on`,
+    `--proxy-protocol`, `--policy`, `--health-check-type|-path|-interval-ms|-timeout-ms`,
+    `--healthy-threshold`, `--unhealthy-threshold`, `--health-check`, `--logs` on
+    create and update; `--sticky-header`, `--rule PRIORITY:PATH_PREFIX[:HEADER=VALUE]`
+    on L7; `update-l7 --clear-custom-domain`; `--check-billing` on create; `list` and
+    `get --include-deleted`.
+  - Virtual IPs, `nat replace-ip`, `reserved-ips convert` and `attach-virtual-ip`,
+    `firewalls list --summary`, `--include-deleted`, `--private-ip`, the forwarding
+    target options and the load-balancer policy, health-check and logs options are
+    not yet part of the published API contract; behaviour may change.
+- Warnings from the SDK (for example a NAT gateway created without a billing
+  catalog) are printed as `Warning: ...` on stderr. Some API errors add a hint (for
+  example how to empty a VPC before deleting it), and a Reserved IP attach to a VM
+  outside a VPC points at `reserved-ips convert`.
 
 ### Changed
 
@@ -107,3 +143,26 @@ Requires `ibee>=0.4.0,<0.5.0`.
   at most 10000. `resize-plan --cpu/--ram-mb` are optional with `--plan-id`.
 - `bandwidth --month` is optional (default: the current UTC month).
 - Restore commands check the target-mode rules before asking for confirmation.
+- `vpcs`, `reserved-ips`, `firewalls` and `load-balancers` commands now call the
+  Python SDK instead of sending requests directly, so the portal's rules are checked
+  before anything is sent (exit 2) and read-only pre-checks run first
+  (`--no-check-state` skips them). Responses are the SDK models, printed as JSON
+  (`-o table` now works for the list commands).
+- `vpcs create` defaults to `--connectivity private` (was `public`, now deprecated),
+  sends `auto_cidr=false` with `--cidr` (it always sent `true`), and no longer sends
+  an empty description or `is_default=false`. `vpcs nodes attach` no longer defaults
+  `--connectivity` to `private`: the API picks `nat` in a `nat_gateway` VPC and
+  `private` otherwise.
+- `vpcs nat create` in a VPC that already has a NAT gateway prints it instead of
+  sending a create (use `--no-check-state` to send it). `vpcs nat delete` and
+  `vpcs delete` check the dependencies first and name them in the confirmation.
+- `reserved-ips reserve` no longer sends an empty label. With `--check-billing` it
+  checks the RESERVED-IP SKU, and load-balancer creates check LOADBALA-STD.
+- `firewalls create --default` is rejected (default groups are platform-managed and
+  hidden from lists) and is no longer shown in help. Firewall rules default to the
+  portal's source `0.0.0.0/0`, and icmp/any rules no longer accept ports.
+- Load-balancer `https` and `tls_passthrough` creates send the managed TLS setting
+  automatically (the API rejected them without it); custom certificates are refused.
+  `load-balancers list` no longer sends `limit=100&skip=0` unless you pass them.
+- Port and range checks use the portal's messages (exit 2) rather than the generic
+  option-range errors.

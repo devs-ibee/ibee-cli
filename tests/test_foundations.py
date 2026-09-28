@@ -292,7 +292,7 @@ def test_retry_after_is_capped_at_30_seconds(http, no_sleep):
 
 def test_unkeyed_create_is_not_retried(http):
     http.responses = [FakeResponse({"detail": "upstream"}, 503)]
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1"])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
     assert result.exit_code == 1
     assert len(http.calls) == 1
     assert "Service error (503" in plain(result)
@@ -326,15 +326,15 @@ def test_non_retryable_statuses_are_not_retried(http, status):
 
 
 def test_connect_error_is_retried_but_read_timeout_on_unkeyed_post_is_not(http):
-    request = httpx.Request("POST", "https://gateway.example/v1/networking/reserved-ips")
+    request = httpx.Request("POST", "https://gateway.example/v1/cdn/distributions")
     http.responses = [httpx.ConnectError("refused", request=request), FakeResponse({"id": "rip-1"})]
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1"])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
     assert result.exit_code == 0, result.output
     assert len(http.calls) == 2
 
     http.calls.clear()
     http.responses = [httpx.ReadTimeout("slow", request=request)]
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1"])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
     assert result.exit_code == 1
     assert len(http.calls) == 1
     assert "Connection error" in plain(result)
@@ -369,16 +369,16 @@ def test_edge_billing_denial_prints_portal_copy_and_topup(http):
             {
                 "error": "billing_denied",
                 "billing_reason": "insufficient_balance",
-                "billing_sku_code": "RIP-1",
+                "billing_sku_code": "CDN-1",
                 "admission_context_id": "adm-9",
             },
             402,
         )
     ]
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1"])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
     assert result.exit_code == 1
     output = plain(result)
-    assert "Your available wallet balance does not cover this Reserved IP" in output
+    assert "Your available wallet balance does not cover this CDN distribution" in output
     assert "reason=insufficient_balance" in output
     assert "admission_context_id=adm-9" in output
     assert "Add credits in the IBEE portal" in output
@@ -386,13 +386,13 @@ def test_edge_billing_denial_prints_portal_copy_and_topup(http):
 
 def test_service_error_shows_request_id(http):
     http.responses = [FakeResponse({"detail": "boom"}, 502, {"x-request-id": "req-42"})]
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1"])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
     assert result.exit_code == 1
     assert "request_id=req-42" in plain(result)
 
 
 def test_oversized_billable_create_body_is_rejected_before_sending(http):
-    result = run([*GATEWAY, "reserved-ips", "reserve", "--site-id", "site-1", "--label", "x" * 70000])
+    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1", "--cache-policy", "x" * 70000])
     assert result.exit_code == 2
     assert "65536-byte limit" in plain(result)
     assert http.calls == []
@@ -655,11 +655,11 @@ def test_check_billing_on_direct_gateway_create(monkeypatch, http):
         context, "get_client", lambda _settings: SimpleNamespace(billing=RequireBilling(calls, allowed=False,
                                                                                          reason="unknown_sku"))
     )
-    result = runner.invoke(app, [*BASE_ARGS, *GATEWAY, "--check-billing", "reserved-ips", "reserve",
-                                 "--site-id", "s1"])
+    result = runner.invoke(app, [*BASE_ARGS, *GATEWAY, "--check-billing", "cdn", "create", "site-cdn",
+                                 "--origin-id", "bucket-1"])
     assert result.exit_code == 1
-    assert "Pricing for this Reserved IP could not be verified" in plain(result)
-    assert calls[0][1]["resource_type"] == "reserved_ip"
+    assert "could not be verified" in plain(result)
+    assert calls[0][1]["resource_type"] == "cdn"
     assert http.calls == []
 
 
