@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import time
 from dataclasses import dataclass, field
@@ -39,13 +40,33 @@ REQUEST_TIMEOUT_SECONDS = 30
 # Indirection so tests can skip real sleeps between retries.
 _sleep = time.sleep
 
-#: Kept for import compatibility with 0.3.0: direct gateway requests now raise the
-#: same typed ``ApiError`` subclasses as the SDK.
-CliApiError = ApiError
+class CliApiError(ApiError):
+    """Kept for import compatibility with 0.3.0.
+
+    Direct gateway requests now raise the SDK's typed ``ApiError`` subclasses, so
+    ``except CliApiError`` does not catch them; catch ``ApiError`` instead. The 0.3.0
+    positional form ``CliApiError(status_code, body)`` still constructs an error.
+    """
+
+    def __init__(
+        self,
+        status_code: Optional[int] = None,
+        body: Any = None,
+        *,
+        headers: Optional[dict] = None,
+        **_ignored: Any,
+    ) -> None:
+        super().__init__(status_code=status_code, body=body, headers=headers)
 
 
 @dataclass
 class Settings:
+    """Global CLI options.
+
+    0.3.0 compatibility: the fifth positional argument was ``as_json`` (a bool); a bool
+    passed there, or ``as_json=...`` as a keyword, maps to ``output='json'``.
+    """
+
     token: Optional[str]
     workspace: Optional[str]
     dev: bool
@@ -57,15 +78,39 @@ class Settings:
     endpoint: Optional[str] = None
     _resolved_base_url: Optional[str] = field(default=None, repr=False)
 
+    def __post_init__(self) -> None:
+        if isinstance(self.output, bool):
+            self.output = "json" if self.output else None
+
     @property
     def as_json(self) -> bool:
         """``True`` when JSON output was requested (``--json`` or ``-o json``)."""
         return self.output == "json"
 
+    @as_json.setter
+    def as_json(self, value: bool) -> None:
+        if value:
+            self.output = "json"
+        elif self.output == "json":
+            self.output = None
+
     @property
     def structured_output(self) -> bool:
         """``True`` for ``-o json|yaml|id``; commands then skip their tables."""
         return self.output in ("json", "yaml", "id")
+
+
+_settings_dataclass_init = Settings.__init__
+
+
+@functools.wraps(_settings_dataclass_init)
+def _settings_init(self: Settings, *args: Any, as_json: Optional[bool] = None, **kwargs: Any) -> None:
+    _settings_dataclass_init(self, *args, **kwargs)
+    if as_json is not None:
+        self.as_json = bool(as_json)
+
+
+Settings.__init__ = _settings_init  # type: ignore[method-assign]
 
 
 def get_settings(ctx: typer.Context) -> Settings:

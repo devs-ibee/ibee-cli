@@ -24,6 +24,8 @@ from ibee.validation import (
     NETWORK_CONNECTIVITY,
     RESTORE_TARGET_MODES,
     SNAPSHOT_MODES,
+    VOLUME_OPERATION_POLL_INTERVAL_SECONDS,
+    VOLUME_OPERATION_TIMEOUT_SECONDS,
     IbeeValidationError,
     assert_vm_action_allowed,
     expand_batch_names,
@@ -153,11 +155,23 @@ def _secret_refs(raw_refs: Optional[List[str]]) -> Optional[List[dict]]:
         return None
     refs = [parse_json_object(raw, "--ssh-key-secret-ref") for raw in raw_refs]
     for ref in refs:
-        if not ref.get("ssh_key_id") or not ref.get("secret_name"):
+        # Same rule as the SDK and the API: either identifier is enough.
+        if not str(ref.get("ssh_key_id") or "").strip() and not str(ref.get("secret_name") or "").strip():
             raise typer.BadParameter(
-                "--ssh-key-secret-ref requires ssh_key_id and secret_name."
+                "--ssh-key-secret-ref needs ssh_key_id or secret_name."
             )
     return refs
+
+
+def _volume_wait(wait: bool, timeout: Optional[float], poll_interval: Optional[float]):
+    """``--wait`` for VM volume attach/detach with the portal cadence: every 2 s, up to 120 s."""
+
+    return resolve_wait(
+        wait,
+        timeout,
+        VOLUME_OPERATION_POLL_INTERVAL_SECONDS if wait and poll_interval is None else poll_interval,
+        default_timeout=VOLUME_OPERATION_TIMEOUT_SECONDS,
+    )
 
 
 def _restore_kwargs(
@@ -333,6 +347,10 @@ def create_vms(
         raise typer.BadParameter(
             "--site-id is required (the API needs it to place the VM). See `ibee compute sites`."
         )
+    if instance_names and len(instance_names) > count:
+        raise typer.BadParameter(
+            f"--instance-name was given {len(instance_names)} times but --count is {count}."
+        )
     names = expand_batch_names(name, count, instance_names, reserved_ip=bool(reserved_public_ip_id))
     keys = _batch_keys(idempotency_key, spec, names)
     # Fail fast (exit 2) on the rules the SDK would reject, before any request.
@@ -386,6 +404,12 @@ def create_vms(
         try:
             results.append(method(name=vm_name, idempotency_key=key, **common))
         except Exception:
+            if results:
+                # Report the VMs already accepted so they can be found and waited for.
+                finish_operations(
+                    settings, client, workspace, results, "Create", names[: len(results)], None,
+                    idempotency_keys=keys[: len(results)],
+                )
             if len(names) > 1:
                 typer.secho(
                     f"Created {len(results)} of {len(names)} {spec.label}s; stopped at {vm_name}.",
@@ -441,10 +465,14 @@ def delete_vm(
 
     vm = None
     target = f"{spec.label} '{vm_id}'"
-    if check_state:
+    # The public-IP question is asked on every delete (as the portal does), so the VM is
+    # read even with --no-check-state unless --yes or an explicit IP choice is given;
+    # --no-check-state skips only the state rule.
+    if check_state or (action is None and not assume_yes):
         vm = to_data(_method(resource, spec, "get")(vm_id=vm_id, workspace_id=workspace))
         vm = vm if isinstance(vm, dict) else {}
-        assert_vm_action_allowed(vm, "delete")
+        if check_state:
+            assert_vm_action_allowed(vm, "delete")
         if vm.get("name"):
             target = f"{spec.label} '{vm['name']}' ({vm_id})"
         volumes = [
@@ -832,15 +860,16 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         check_state: bool = check_state_option(),
         wait: bool = typer.Option(False, "--wait"),
-        timeout: Optional[float] = timeout_option(),
+        timeout: Optional[float] = timeout_option(VOLUME_OPERATION_TIMEOUT_SECONDS),
         poll_interval: Optional[float] = poll_interval_option(),
         idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Attach a persistent block volume.
 
         The volume must be unattached, idle and in the VM's site; its Block Storage SKU is read from the volume.
+        --wait polls every 2 s for up to 120 s by default, as the portal does.
         """
-        wait_config = resolve_wait(wait, timeout, poll_interval)
+        wait_config = _volume_wait(wait, timeout, poll_interval)
         key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-volume-attach", volume_id)
         if mode is not None:
             _choice(mode, ATTACH_MODES, "--mode")
@@ -874,15 +903,16 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         check_state: bool = check_state_option(),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
         wait: bool = typer.Option(False, "--wait"),
-        timeout: Optional[float] = timeout_option(),
+        timeout: Optional[float] = timeout_option(VOLUME_OPERATION_TIMEOUT_SECONDS),
         poll_interval: Optional[float] = poll_interval_option(),
         idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Detach a persistent block volume after guest unmount.
 
         Needs --confirm-unmounted (unmount it in the guest first) or --force.
+        --wait polls every 2 s for up to 120 s by default, as the portal does.
         """
-        wait_config = resolve_wait(wait, timeout, poll_interval)
+        wait_config = _volume_wait(wait, timeout, poll_interval)
         key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-volume-detach", volume_id)
         if confirm_unmounted is not True and force is not True:
             raise typer.BadParameter(
@@ -1301,6 +1331,17 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         if catalog is not None:
             kwargs["billing_catalog"] = catalog
         _require_change(**{key: value for key, value in kwargs.items() if key != "requested_by"})
+        if not check_state and kwargs.get("schedule"):
+            # Without the saved policy the SDK fills missing fields from the portal
+            # defaults, and the API replaces the whole schedule: require all of it.
+            required = [frequency, hour, minute, timezone, window_minutes]
+            if frequency == "weekly":
+                required.append(day_of_week)
+            if any(value is None for value in required):
+                raise typer.BadParameter(
+                    "Without the state check, pass the full schedule (--frequency, --hour, --minute, "
+                    "--timezone, --window-minutes[, --day-of-week]) or drop --no-check-state."
+                )
         _settings, workspace, _client, resource = _resource(ctx, spec)
         result = getattr(resource, f"update_{spec.method_fragment}_backup_policy")(
             vm_id, workspace_id=workspace, **_check_state_arg(check_state), **kwargs

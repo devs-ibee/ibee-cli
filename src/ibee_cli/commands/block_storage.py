@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import typer
+from ibee.core.api_error import ApiError
 from ibee.errors import ForbiddenError
 from ibee.validation import (
     BLOCK_VOLUME_ATTACH_MODES,
@@ -23,17 +24,23 @@ from ibee.validation import (
     BLOCK_VOLUME_VM_TYPES,
     VOLUME_OPERATION_POLL_INTERVAL_SECONDS,
     VOLUME_OPERATION_TIMEOUT_SECONDS,
+    IbeeValidationError,
+    build_block_volume_create_body,
     check_volume_deletable,
+    resolve_single_attachment,
     validate_block_volume_id,
     validate_node_safe_detach,
     validate_vm_detach_confirmation,
     validate_volume_attach_mode,
     validate_volume_vm_state,
+    validate_vm_id,
     validate_volume_vm_type,
+    volume_vm_type,
 )
 
 from ..context import get_client, get_settings, require_workspace
 from ..helpers import (
+    api_hints,
     check_state_option,
     confirm_destructive,
     finish_operation,
@@ -64,6 +71,14 @@ NODE_LEVEL_NOTE = (
 )
 FORCE_DELETE_WARNING = (
     "Force delete detaches the volume from all servers and erases all data. Continue?"
+)
+CREATE_PLAN_HINT = (
+    "Pick another --size-gb allowed by the site's plan, or pass --sku-code when the site has "
+    "several Block Storage plans."
+)
+AMBIGUOUS_PLAN_HINT = (
+    "The site has several priced Block Storage plans; this is a server-side catalog issue that "
+    "--sku-code cannot resolve yet. Contact support."
 )
 FORCE_DETACH_WARNING = (
     "Force detach skips the unmount safety check and can corrupt data that is still in use. Continue?"
@@ -249,10 +264,8 @@ def create_volume(
 
     settings, workspace, client = _session(ctx)
     key = resolve_idempotency_key(idempotency_key, "block-create", name)
-    if settings.check_billing:
-        preflight_billing(settings, client, workspace, sku_code=sku_code, resource_type="block_storage")
-    result = client.block_storage.create_block_volume(
-        workspace_id=workspace,
+    # Validate first (exit 2) so a bad request never reaches the billing preflight.
+    body = build_block_volume_create_body(
         name=name,
         size_gb=size_gb,
         site_id=site_id,
@@ -263,9 +276,32 @@ def create_volume(
         backup_enabled=backup_enabled,
         vm_type=vm_type,
         delete_on_termination=delete_on_termination,
-        idempotency_key=key,
-        resolve_site_name=check_site,
     )
+    if settings.check_billing:
+        preflight_billing(
+            settings, client, workspace, sku_code=body.get("sku_code"), resource_type="block_storage"
+        )
+    try:
+        with api_hints({400: CREATE_PLAN_HINT}):
+            result = client.block_storage.create_block_volume(
+                workspace_id=workspace,
+                name=name,
+                size_gb=size_gb,
+                site_id=site_id,
+                site_name=site_name,
+                sku_code=sku_code,
+                volume_class=volume_class,
+                replica_count=replica_count,
+                backup_enabled=backup_enabled,
+                vm_type=vm_type,
+                delete_on_termination=delete_on_termination,
+                idempotency_key=key,
+                resolve_site_name=check_site,
+            )
+    except ApiError as exc:
+        if getattr(exc, "code", None) == "ambiguous_block_storage_plan":
+            exc.cli_hint = AMBIGUOUS_PLAN_HINT  # type: ignore[attr-defined]
+        raise
     volume = _get(result, "volume") or {}
     if settings.output == "id":
         typer.echo(str(_volume_id(volume) or ""))
@@ -407,6 +443,22 @@ def detach_from_vm(
     config = _volume_wait(wait, timeout, poll_interval)
     key = resolve_idempotency_key(idempotency_key, "detach-volume", volume_id)
     target = f"VM {vm_id}" if vm_id else "its server"
+    # Resolve the attachment before asking, so the prompt names the VM and a volume that
+    # cannot be detached fails (exit 2) without a prompt.
+    if vm_id is not None:
+        vm_id = validate_vm_id(vm_id)
+    volume = _read_volume(client, workspace, volume_id)
+    if volume is not None:
+        attachment = resolve_single_attachment(volume, vm_id=vm_id, for_vm=True)
+        vm_id = str(_get(attachment, "vm_id")).strip()
+        vm_name = _get(attachment, "vm_name")
+        target = f"VM '{vm_name}' ({vm_id})" if vm_name else f"VM {vm_id}"
+    elif vm_id is None:
+        raise IbeeValidationError(
+            "Reading the volume needs block-storage.read; grant it or pass the VM ID and --vm-type.",
+            code="volume_unreadable",
+            field="vm_id",
+        )
     confirm_destructive(settings, f"Detach volume '{volume_id}' from {target}?", yes)
     if force:
         confirm_destructive(settings, FORCE_DETACH_WARNING, yes)
@@ -496,7 +548,19 @@ def detach_volume(
     validate_node_safe_detach(force, confirm_unmounted, state)
     validate_volume_vm_type(vm_type)
     key = resolve_idempotency_key(idempotency_key, "block-detach", volume_id)
-    confirm_destructive(settings, f"Detach Block Storage volume '{volume_id}'?", yes)
+    target = ""
+    if node_name is None:
+        # Find the only attachment before asking (the SDK would do it after the prompt).
+        volume = client.block_storage.get_block_volume(volume_id, workspace_id=workspace)
+        attachment = resolve_single_attachment(volume)
+        node_name = str(_get(attachment, "node_name") or "").strip()
+        if not node_name:
+            raise IbeeValidationError(
+                "The attachment has no node name; pass --node-name.", code="invalid_node_name", field="node_name"
+            )
+        vm_type = vm_type or volume_vm_type(volume)
+        target = f" from node '{node_name}'"
+    confirm_destructive(settings, f"Detach Block Storage volume '{volume_id}'{target}?", yes)
     if force:
         confirm_destructive(settings, FORCE_DETACH_WARNING, yes)
     result = client.block_storage.detach_block_volume(

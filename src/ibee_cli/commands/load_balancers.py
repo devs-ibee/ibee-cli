@@ -362,7 +362,9 @@ def create_l7_load_balancer(
     ctx: typer.Context,
     name: str = typer.Argument(..., help="Load-balancer name (1-128 characters)"),
     protocol: str = typer.Option(
-        "http", "--protocol", help="http or https (managed certificate; the portal's default)"
+        "http",
+        "--protocol",
+        help="http (default, kept from 0.3.0) or https (the portal's default; managed certificate)",
     ),
     backend: Optional[List[str]] = _backend_opt(),
     backends: Optional[str] = _backends_json_opt(),

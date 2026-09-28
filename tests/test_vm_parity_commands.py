@@ -189,6 +189,7 @@ def test_batch_create_stops_at_first_error(sdk):
     assert result.exit_code == 1
     output = plain(result)
     assert "Created 1 of 3 cloud VMs; stopped at web-2." in output
+    assert "Create accepted for web-1 (operation op-1)" in output
     assert "VM with this name already exists" in output
     assert names(sdk) == ["create_cloud_vm", "create_cloud_vm"]
 

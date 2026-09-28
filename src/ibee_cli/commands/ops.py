@@ -15,7 +15,17 @@ from ..helpers import (
     resolve_wait,
     timeout_option,
 )
-from ..render import handle_api_errors, print_json
+from ..render import cell, emit, handle_api_errors
+
+OPERATION_COLUMNS = (
+    "operation_id",
+    "status",
+    "action",
+    "vm_id",
+    "current_step",
+    "error_code",
+    "error_message",
+)
 
 app = typer.Typer(help="Async compute operations for cloud and GPU VMs", no_args_is_help=True)
 
@@ -59,7 +69,15 @@ def get_operation(
     result = client.cloud_vms.get_compute_operation(
         operation_id=validate_operation_id(operation_id), workspace_id=workspace
     )
-    print_json(result)
+    emit(
+        result,
+        settings=settings,
+        default="json",
+        title="Operation",
+        headers=OPERATION_COLUMNS,
+        rows=[[cell(result, column) for column in OPERATION_COLUMNS]],
+        id_field="operation_id",
+    )
 
 
 @app.command("wait")

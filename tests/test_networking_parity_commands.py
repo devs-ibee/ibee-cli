@@ -435,6 +435,8 @@ def test_forwarding_vip_target_uses_announcers(gw):
 def test_forwarding_update_target_and_toggles(gw):
     gw.on("GET", f"{V}/nat-gateways", [gateway_record()])
     gw.on("GET", RULES, [pf_rule()])
+    # A changed target is checked against the VPC's NAT nodes (SDK 0.4.0 pre-step).
+    gw.on("GET", f"{V}/nodes", [node()])
     gw.on("PATCH", f"{RULES}/natpf-1", pf_rule())
     ok(run(["vpcs", "forwarding", "update", "vpc-1", "nat-1", "natpf-1", "--target", "vm"]))
     assert gw.last("PATCH", f"{RULES}/natpf-1").json == {"target_type": "vm", "target_vm_ids": []}

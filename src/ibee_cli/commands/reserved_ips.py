@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 import typer
+from ibee.errors import ForbiddenError
 from ibee.validation import check_reserved_ip_releasable
 
 from ..context import get_client, get_settings, require_workspace
@@ -102,14 +103,22 @@ def convert_vm_public_ip(
 
     _settings, workspace, client = _session(ctx)
     catalog = load_json_input(billing_catalog, billing_catalog_file, "billing-catalog")
-    reserved = client.reserved_ips.convert_vm_public_ip_to_reserved_ip(
-        workspace_id=workspace,
-        vm_id=vm_id,
-        site_id=site_id,
-        label=label,
-        billing_catalog=catalog,
-        billing_check=billing_check,
-    )
+    try:
+        reserved = client.reserved_ips.convert_vm_public_ip_to_reserved_ip(
+            workspace_id=workspace,
+            vm_id=vm_id,
+            site_id=site_id,
+            label=label,
+            billing_catalog=catalog,
+            billing_check=billing_check,
+        )
+    except ForbiddenError as exc:
+        text = str(getattr(exc, "message", "") or "")
+        if billing_check and (getattr(exc, "required_scope", None) == "billing.read" or "billing.read" in text):
+            exc.cli_hint = (  # type: ignore[attr-defined]
+                "The RESERVED-IP billing check needs the billing.read scope; grant it or pass --no-billing-check."
+            )
+        raise
     print_json(reserved, id_field=ID_FIELD)
 
 

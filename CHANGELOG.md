@@ -140,8 +140,9 @@ Requires `ibee>=0.4.0,<0.5.0`.
   carry an idempotency key on a route that honours it, are retried on 429, 502,
   503 and 504 and on network errors (honouring `Retry-After`, at most 30 s).
   Unkeyed writes and 408, 409 and 500 responses are never retried.
-- API errors are the SDK's typed errors (`CliApiError` is now an alias of
-  `ibee.core.api_error.ApiError`) and are reported with specific messages: the
+- API errors are the SDK's typed errors (`CliApiError` is now a subclass of
+  `ibee.core.api_error.ApiError` that still accepts the 0.3.0 `CliApiError(status_code, body)`
+  form; catch `ApiError` to handle every API error) and are reported with specific messages: the
   portal's billing explanation and top-up guidance for 402, the missing scope
   for 403 `insufficient_scope`, field errors for 422, and request IDs for 5xx.
   The 404 message no longer mentions routes rolling out.
@@ -261,3 +262,58 @@ Requires `ibee>=0.4.0,<0.5.0`.
     alone. Confirmation prompts use the portal's wording, and archive, unarchive,
     delete and several identity commands print their result with `-o json|yaml|id`.
   - A 403 "does not belong to workspace" from Secret Store is printed as not found.
+
+- Review fixes (0.4.0):
+  - JSON and YAML output of SDK results keeps the API's wire format: timestamps
+    print as ISO 8601 (`2026-09-28T10:00:00Z`, not `2026-09-28 10:00:00+00:00`) and
+    unset optional fields are omitted. `firewalls list` output now follows the SDK
+    model rather than echoing the raw API response.
+  - The built-in YAML emitter (used when PyYAML is not installed) quotes every string
+    a YAML parser could read as another type (timestamps, times, dates, hex, `.inf`,
+    values starting with `@` or ending in a space).
+  - `ibee.context.Settings` accepts the 0.3.0 fifth positional `as_json` bool and the
+    `as_json=` keyword again (mapped to `-o json`).
+  - When `--wait` cannot poll an accepted operation (API or network error), the
+    command prints the operation ID and `resume with: ibee ops wait OP_ID` before the
+    error, instead of losing the operation.
+  - `ops get -o table` prints a table (the default is still JSON).
+  - `console create` hides the token-bearing `connect_url` unless `--show-url` or
+    `--json` / `-o json|yaml|id` is given.
+  - `vms|gpus delete --no-check-state` still asks whether to reserve or release the
+    auto-assigned public IP (it now skips only the state rule).
+  - `vms|gpus backup-policy update --no-check-state` needs the full schedule when it
+    changes the schedule, because the API replaces the whole schedule.
+  - `vms|gpus create --count`: more `--instance-name` values than `--count` exits 2;
+    when a batch stops early, the VMs already accepted are listed with their
+    operation IDs.
+  - `vms|gpus access-update --ssh-key-secret-ref` needs `ssh_key_id` or `secret_name`
+    (not both), as the SDK and API do.
+  - `vms|gpus volume-attach` and `volume-detach --wait` poll every 2 s for up to 120 s
+    by default, as the portal does.
+  - `vpcs delete --delete-nat-gateway` exits 3 (not 2) when the NAT gateway was
+    deleted but is still reconciling.
+  - `vpcs virtual-ips attach-ip` checks that the Reserved IP is in the virtual IP's
+    site, is unattached and is in `reserved` state before sending.
+  - `firewalls list --summary --limit 100` checks for a next page instead of assuming
+    one.
+  - `reserved-ips convert` tells you to pass `--no-billing-check` when the token lacks
+    `billing.read`.
+  - `load-balancers create-l7 --protocol` still defaults to `http` (0.3.0); the help
+    now says the portal defaults to `https`.
+  - `buckets credentials create -o id` prints the full result, so the one-time secret
+    is never dropped.
+  - `cdn create` skips the origin-bucket check when the token cannot read the bucket
+    (403), as for a 404.
+  - `block-storage create --check-billing` validates the request before the billing
+    preflight, and plan errors (400 size/SKU, 502 `ambiguous_block_storage_plan`)
+    print guidance.
+  - `block-storage detach-vm` and `detach` resolve the attachment before the
+    confirmation prompt (the prompt names the VM or node; an unattached volume exits
+    2 without a prompt).
+  - `secrets undelete` without `--versions` asks for `--versions` when the token cannot
+    read the secret's versions.
+  - `secrets delete-permanent`, `destroy-versions`, `identities delete` and
+    `identities scopes delete` print the API result with `-o json|yaml|id`.
+  - The Secret Store page hint names the next page and is not printed on the last page.
+  - A server refusal that the SDK reports as a validation error (Reserved IP target
+    without a VPC, firewall attach to a non-OVS/OVN network) exits 1 with its hint.
