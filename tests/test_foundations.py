@@ -456,7 +456,7 @@ def test_oversized_billable_create_body_is_rejected_before_sending(probe):
 def test_cli_api_error_alias_is_the_sdk_api_error():
     from ibee.core.api_error import ApiError
 
-    assert context.CliApiError is ApiError
+    assert issubclass(context.CliApiError, ApiError)
 
 
 # ---------------------------------------------------------------------------

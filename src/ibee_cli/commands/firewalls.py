@@ -88,7 +88,13 @@ def list_firewall_groups(
         wanted = page_limit or 10
         probe = dict(paging, limit=min(wanted + 1, 100))
         result = list(client.firewalls.list_firewall_group_summaries(workspace_id=workspace, **probe))
-        more = len(result) > wanted or (wanted == 100 and len(result) == 100)
+        if wanted == 100 and len(result) == 100:
+            # The API caps limit at 100, so the limit+1 probe cannot see past this page.
+            more = bool(list(client.firewalls.list_firewall_group_summaries(
+                workspace_id=workspace, limit=1, offset=(page_offset or 0) + 100
+            )))
+        else:
+            more = len(result) > wanted
         result = result[:wanted]
     else:
         result = client.firewalls.list_firewall_group_summaries(workspace_id=workspace)

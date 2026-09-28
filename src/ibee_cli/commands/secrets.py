@@ -191,9 +191,12 @@ def _normalize_batch(items: list[Any]) -> tuple[list[dict], list[str]]:
     return normalized, duplicates
 
 
-def _page_hint(kind: str, shown: int, total: Any, page: int) -> None:
-    if isinstance(total, int) and total > shown:
-        _note(f"Showing {shown} of {total} {kind} (page {page}); use --page N or --all for the rest.")
+def _page_hint(kind: str, shown: int, total: Any, page: int, limit: int = PORTAL_PAGE_LIMIT) -> None:
+    """Point at the next page only when rows follow this one."""
+    if isinstance(total, int) and (page - 1) * limit + shown < total:
+        _note(
+            f"Showing {shown} of {total} {kind} (page {page}); use --page {page + 1} or --all for the rest."
+        )
 
 
 def _check_list_options(page: Optional[int], all_pages: bool) -> None:
@@ -263,7 +266,7 @@ def list_stores(
         ],
     )
     if not all_pages:
-        _page_hint("stores", len(stores), total, page or 1)
+        _page_hint("stores", len(stores), total, page or 1, limit or PORTAL_PAGE_LIMIT)
 
 
 @stores_app.command("create")
@@ -738,7 +741,10 @@ def delete_identity(
         yes,
     )
     client = get_client(settings)
-    client.secret_store.delete_secret_identity(identity, workspace_id=workspace)
+    result = client.secret_store.delete_secret_identity(identity, workspace_id=workspace)
+    if settings.structured_output:
+        print_json(result)
+        return
     typer.secho(f"Identity '{identity}' permanently deleted.", fg=typer.colors.GREEN)
 
 
@@ -903,7 +909,10 @@ def delete_identity_scope(
         yes,
     )
     client = get_client(settings)
-    client.secret_store.delete_secret_identity_scope(scope, workspace_id=workspace)
+    result = client.secret_store.delete_secret_identity_scope(scope, workspace_id=workspace)
+    if settings.structured_output:
+        print_json(result)
+        return
     typer.secho(f"Scope '{scope}' deleted.", fg=typer.colors.GREEN)
 
 
@@ -967,7 +976,7 @@ def list_secrets(
         ],
     )
     if not all_pages:
-        _page_hint("secrets", len(secrets), total, page or 1)
+        _page_hint("secrets", len(secrets), total, page or 1, limit or PORTAL_PAGE_LIMIT)
 
 
 @app.command("create")
@@ -1293,6 +1302,23 @@ def undelete_secret(
     workspace = _workspace(settings)
     secret = _rid(secret_id, "secret_id")
     client = get_client(settings)
+    if parsed is None:
+        # Find the current version here, so a token without secret-store.read gets told
+        # to pass --versions instead of a bare 403.
+        record = _optional_read(
+            "Current version lookup",
+            lambda: client.secret_store.list_secret_versions(secret, workspace_id=workspace),
+        )
+        if record is None:
+            fail_usage("Pass --versions N: the token cannot read the secret's versions to find the current one.")
+        current = (to_data(record) or {}).get("current_version")
+        if not isinstance(current, int) or isinstance(current, bool) or current < 1:
+            raise IbeeValidationError(
+                "The secret has no current version to undelete; pass --versions explicitly.",
+                code="invalid_versions",
+                field="versions",
+            )
+        parsed = [current]
     result = client.secret_store.undelete_secret(secret, workspace_id=workspace, versions=parsed)
     if settings.structured_output:
         print_json(result)
@@ -1319,7 +1345,10 @@ def destroy_versions(
         yes,
     )
     client = get_client(settings)
-    client.secret_store.destroy_secret_versions(secret, workspace_id=workspace, versions=parsed_versions)
+    result = client.secret_store.destroy_secret_versions(secret, workspace_id=workspace, versions=parsed_versions)
+    if settings.structured_output:
+        print_json(result)
+        return
     typer.secho(f"Secret '{secret}' versions destroyed.", fg=typer.colors.GREEN)
 
 
@@ -1351,7 +1380,10 @@ def permanently_delete_secret(
         f"Permanently delete secret '{label}' and all versions? This cannot be undone.",
         yes,
     )
-    client.secret_store.permanently_delete_secret(secret, workspace_id=workspace)
+    result = client.secret_store.permanently_delete_secret(secret, workspace_id=workspace)
+    if settings.structured_output:
+        print_json(result)
+        return
     typer.secho(f"Secret '{label}' permanently deleted.", fg=typer.colors.GREEN)
 
 

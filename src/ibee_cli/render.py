@@ -113,7 +113,12 @@ COLLECTION_KEYS = (
 
 def _json_value(payload: Any) -> Any:
     if hasattr(payload, "model_dump"):
-        return _json_value(payload.model_dump())
+        # JSON mode keeps the API's wire format (ISO 8601 timestamps such as
+        # 2026-09-28T10:00:00Z) instead of Python ``datetime`` reprs.
+        try:
+            return _json_value(payload.model_dump(mode="json"))
+        except TypeError:
+            return _json_value(payload.model_dump())
     if hasattr(payload, "dict") and not isinstance(payload, dict):
         return _json_value(payload.dict())
     if isinstance(payload, dict):
@@ -154,7 +159,10 @@ def _current_output() -> Optional[str]:
 # YAML
 # ---------------------------------------------------------------------------
 
-_PLAIN_SCALAR = re.compile(r"^[A-Za-z0-9_./@:+-][A-Za-z0-9_ ./@:+-]*$")
+#: Strings written unquoted: they must start with a letter or ``_`` and contain no
+#: ``:``, spaces, ``@`` or other indicators, so a YAML parser reads them back as the
+#: same string (timestamps, times, dates, hex, ``.inf`` and the like are quoted).
+_PLAIN_SCALAR = re.compile(r"^[A-Za-z_][A-Za-z0-9_./-]*$")
 _YAML_RESERVED = frozenset(
     {"", "~", "null", "true", "false", "yes", "no", "on", "off", "y", "n"}
 )
@@ -168,15 +176,7 @@ def _yaml_scalar(value: Any) -> str:
     if isinstance(value, (int, float)):
         return json.dumps(value)
     text = str(value)
-    looks_numeric = re.fullmatch(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", text) is not None
-    if (
-        _PLAIN_SCALAR.fullmatch(text)
-        and text.lower() not in _YAML_RESERVED
-        and not looks_numeric
-        and not text.endswith(":")
-        and ": " not in text
-        and not text.startswith(("-", ":"))
-    ):
+    if _PLAIN_SCALAR.fullmatch(text) and text.lower() not in _YAML_RESERVED:
         return text
     return json.dumps(text, ensure_ascii=False)
 
@@ -552,6 +552,17 @@ def _is_transport_error(exc: BaseException) -> bool:
     return type(exc).__module__.startswith("httpx")
 
 
+def _api_error_exit(exc: ApiError) -> None:
+    for line in api_error_lines(exc):
+        _err(line)
+    hint = getattr(exc, "cli_hint", None)
+    if hint:
+        _err(hint, typer.colors.YELLOW)
+    if exc.status_code in (429, 502, 503, 504) or (exc.status_code or 0) >= 500:
+        retry_hint(getattr(exc, "idempotency_key", None))
+    raise typer.Exit(code=EXIT_FAILURE)
+
+
 def handle_api_errors(fn: Callable) -> Callable:
     """Convert SDK, API and network errors into clean CLI errors and exit codes."""
 
@@ -560,18 +571,22 @@ def handle_api_errors(fn: Callable) -> Callable:
         try:
             return fn(*args, **kwargs)
         except IbeeValidationError as exc:
+            if isinstance(exc, ApiError):
+                # A typed server response that is also a validation error
+                # (e.g. ReservedIpTargetUnsupportedError): the API refused it.
+                _api_error_exit(exc)
             for line in validation_error_lines(exc):
                 _err(line)
+            if isinstance(exc.__cause__, ApiError):
+                # The SDK translated a server refusal into a validation error: the
+                # request was sent, so this is an API error (exit 1), not usage.
+                hint = getattr(exc, "cli_hint", None)
+                if hint:
+                    _err(hint, typer.colors.YELLOW)
+                raise typer.Exit(code=EXIT_FAILURE)
             raise typer.Exit(code=EXIT_USAGE)
         except ApiError as exc:
-            for line in api_error_lines(exc):
-                _err(line)
-            hint = getattr(exc, "cli_hint", None)
-            if hint:
-                _err(hint, typer.colors.YELLOW)
-            if exc.status_code in (429, 502, 503, 504) or (exc.status_code or 0) >= 500:
-                retry_hint(getattr(exc, "idempotency_key", None))
-            raise typer.Exit(code=EXIT_FAILURE)
+            _api_error_exit(exc)
         except OperationTimeoutError as exc:
             _err(f"{exc}; resume with: ibee ops wait {exc.operation_id}", typer.colors.YELLOW)
             raise typer.Exit(code=EXIT_WAIT_TIMEOUT)

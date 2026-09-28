@@ -297,15 +297,27 @@ def delete_vpc(
         if delete_nat_gateway and gateways:
             prompt = f"Delete NAT gateway(s) and then VPC '{vpc_id}'?"
     confirm_destructive(settings, prompt, yes)
-    with api_hints({409: VPC_DELETE_HINT}):
-        client.vpcs.delete_vpc(
-            vpc_id,
-            workspace_id=workspace,
-            check_state=check_state,
-            delete_nat_gateway=delete_nat_gateway,
-            nat_public_ip_action=nat_ip_action,
-            nat_billing_catalog=catalog,
+    try:
+        with api_hints({409: VPC_DELETE_HINT}):
+            client.vpcs.delete_vpc(
+                vpc_id,
+                workspace_id=workspace,
+                check_state=check_state,
+                delete_nat_gateway=delete_nat_gateway,
+                nat_public_ip_action=nat_ip_action,
+                nat_billing_catalog=catalog,
+            )
+    except IbeeValidationError as exc:
+        if exc.code != "nat_gateway_deleting":
+            raise
+        # The NAT gateway was deleted; only the wait for it to disappear ran out.
+        typer.secho(
+            f"NAT gateway deletion is still reconciling; retry 'ibee vpcs delete {vpc_id}' shortly "
+            f"(check with: ibee vpcs nat list {vpc_id}).",
+            fg=typer.colors.YELLOW,
+            err=True,
         )
+        raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
     _success(settings, f"VPC '{vpc_id}' deleted.")
 
 
@@ -980,8 +992,28 @@ def attach_virtual_ip_reserved_ip(
                     code="nat_gateway_unavailable",
                     field="virtual_ip_id",
                 )
+        # The portal offers only unattached Reserved IPs in 'reserved' state from the
+        # virtual IP's site.
+        reserved_record = client.reserved_ips.get_reserved_ip(reserved_ip_id.strip(), workspace_id=workspace)
+        vip_site = record_get(vip, "site_id") or record_get(vpc, "site_id")
+        reserved_site = record_get(reserved_record, "site_id")
+        if vip_site and reserved_site and str(vip_site) != str(reserved_site):
+            raise IbeeValidationError(
+                "Virtual IP and Reserved Public IP must belong to the same site.",
+                code="reserved_ip_site_mismatch",
+                field="reserved_ip_id",
+            )
+        reserved_status = str(_value(reserved_record, "status") or "").strip().lower()
+        if record_get(reserved_record, "attached_resource_id") or (
+            reserved_status and reserved_status != "reserved"
+        ):
+            raise IbeeValidationError(
+                "That Reserved IP is not available; choose an unattached address.",
+                code="reserved_ip_attached",
+                field="reserved_ip_id",
+            )
     reserved = client.reserved_ips.attach_reserved_ip_to_virtual_ip(
-        reserved_ip_id, workspace_id=workspace, virtual_ip_id=virtual_ip_id, check_state=check_state
+        reserved_ip_id, workspace_id=workspace, virtual_ip_id=virtual_ip_id, check_state=False
     )
     print_json(reserved, id_field="public_ip_id")
 

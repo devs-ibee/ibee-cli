@@ -25,7 +25,7 @@ from ibee.validation import (
 
 from ..context import get_client, get_settings, require_workspace
 from ..helpers import check_state_option, confirm_destructive, parse_json_object
-from ..render import emit, handle_api_errors, print_json, print_table, to_data
+from ..render import emit, handle_api_errors, print_json, print_structured, print_table, to_data
 
 app = typer.Typer(
     help="Object storage buckets and S3 credentials", no_args_is_help=True
@@ -370,7 +370,8 @@ def create_credential(
         allowed_buckets=allowed_bucket or None,
         preflight_billing=preflight or settings.check_billing,
     )
-    print_json(result, id_field="access_key_id")
+    # Never print only the ID: the one-time secret would be lost. -o id falls back to JSON.
+    print_structured(result, "yaml" if settings.output == "yaml" else "json", id_field="access_key_id")
     typer.secho(
         "Save secret_access_key now; it cannot be retrieved again.",
         fg=typer.colors.YELLOW,

@@ -17,6 +17,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import httpx
 import typer
 from ibee.core.api_error import ApiError
 from ibee.errors import BillingDeniedError, OperationFailedError, OperationTimeoutError
@@ -260,6 +261,18 @@ def _operation_failure_text(final: Any, action: str, ident: str, op_id: str) -> 
     return f"{text} (operation {op_id})"
 
 
+def _status_check_failed(action: str, ident: str, op_id: str, idempotency_key: Optional[str]) -> None:
+    """The write was accepted but polling it failed: say how to resume instead of re-running it."""
+
+    typer.secho(
+        f"{action} accepted for {ident} (operation {op_id}), but checking its status failed; "
+        f"resume with: ibee ops wait {op_id}",
+        fg=typer.colors.YELLOW,
+        err=True,
+    )
+    retry_hint(idempotency_key)
+
+
 def finish_operation(
     settings: Any,
     client: Any,
@@ -299,6 +312,9 @@ def finish_operation(
             )
             retry_hint(idempotency_key)
             raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
+        except (ApiError, httpx.TransportError):
+            _status_check_failed(action, ident, op_id, idempotency_key)
+            raise
         status = _status_text(final)
         if mode in ("json", "yaml", "id"):
             print_structured(final, mode)
@@ -365,6 +381,9 @@ def finish_operations(
             continue
         try:
             final = wait_for_operation(client, workspace_id, op_id, wait.timeout, wait.poll_interval)
+        except (ApiError, httpx.TransportError):
+            _status_check_failed(action, ident, op_id, key)
+            raise
         except OperationTimeoutError as exc:
             timed_out = True
             finals.append(result)
@@ -618,13 +637,17 @@ def sdk_warnings() -> Iterator[None]:
 def api_hints(hints: Mapping[int, str]) -> Iterator[None]:
     """Attach a follow-up line to API errors with the given status codes.
 
-    ``handle_api_errors`` prints the hint after the usual error message.
+    ``handle_api_errors`` prints the hint after the usual error message. A validation
+    error the SDK raised from a server response is matched by that response's status.
     """
 
     try:
         yield
-    except ApiError as exc:
-        hint = hints.get(exc.status_code or 0)
+    except (ApiError, IbeeValidationError) as exc:
+        source = exc if isinstance(exc, ApiError) else exc.__cause__
+        if not isinstance(source, ApiError):
+            raise
+        hint = hints.get(source.status_code or 0)
         if hint and not getattr(exc, "cli_hint", None):
             try:
                 exc.cli_hint = hint  # type: ignore[attr-defined]

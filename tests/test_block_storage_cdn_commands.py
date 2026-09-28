@@ -401,14 +401,17 @@ def test_detach_vm_errors_when_not_attached(gw):
 
 
 def test_detach_vm_force_asks_again(gw):
+    gw.on("GET", V, attached())
     result = run(["block-storage", "detach-vm", VOL, "7a1b2c3d4e5f60718293a4b5", "--force"], input="y\nn\n")
     assert result.exit_code == 1
     assert "skips the unmount safety check" in plain(result)
-    assert gw.calls == []
+    assert "from VM 'web' (7a1b2c3d4e5f60718293a4b5)" in plain(result)
+    assert gw.writes() == []
 
 
 def test_detach_vm_wait_json_prints_operation_and_volume(gw):
-    gw.on("GET", V, attached(), volume())
+    # One read resolves the attachment before the prompt, one inside the SDK, then the poll.
+    gw.on("GET", V, attached(), attached(), volume())
     gw.on("POST", "compute/cloud-vms/7a1b2c3d4e5f60718293a4b5/actions/detach-volume", accepted())
     gw.on("GET", "compute/operations/op-1", op_status("succeeded"))
     result = run(["--json", "block-storage", "detach-vm", VOL, "7a1b2c3d4e5f60718293a4b5", "--confirm-unmounted", "--yes", "--wait"])
@@ -483,7 +486,8 @@ def test_cdn_list_table_uses_bucket_name_or_short_origin(gw):
 
 
 def test_cdn_create_checks_origin_bucket_is_public(gw):
-    gw.on("GET", "object-storage/buckets/site-assets", {"name": "site-assets", "region": "r", "is_public": False})
+    gw.on("GET", "object-storage/buckets/site-assets",
+          {"name": "site-assets", "region": "r", "is_public": False, "bucket_lock_enabled": False})
     result = run(["cdn", "create", "assets", "--origin-id", "site-assets"])
     assert result.exit_code == 2
     assert "Only public buckets can be used as CDN origins" in plain(result)
@@ -491,7 +495,8 @@ def test_cdn_create_checks_origin_bucket_is_public(gw):
 
 
 def test_cdn_create_request(gw):
-    gw.on("GET", "object-storage/buckets/site-assets", {"name": "site-assets", "region": "r", "is_public": True})
+    gw.on("GET", "object-storage/buckets/site-assets",
+          {"name": "site-assets", "region": "r", "is_public": True, "bucket_lock_enabled": False})
     gw.on("POST", "cdn/distributions", distribution())
     result = run(["cdn", "create", " assets ", "--origin-id", "site-assets", "--cache-policy", "media"])
     assert result.exit_code == 0, result.output
