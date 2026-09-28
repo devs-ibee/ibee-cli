@@ -31,6 +31,12 @@ jobs:
           SDK_REF: ${{ github.head_ref || github.ref_name }}
         run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
 
+      - name: Install IBEE Python SDK 0.4 candidate
+        if: endsWith(github.head_ref, 'portal-parity-0.4') || endsWith(github.ref_name, 'portal-parity-0.4')
+        env:
+          SDK_REF: ${{ github.head_ref || github.ref_name }}
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
+
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
 

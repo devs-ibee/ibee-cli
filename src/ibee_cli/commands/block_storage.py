@@ -7,8 +7,14 @@ from urllib.parse import quote
 
 import typer
 
-from ..context import api_request, get_settings
-from ..helpers import compact_payload, new_idempotency_key
+from ..context import api_request, get_client, get_settings, require_workspace
+from ..helpers import (
+    compact_payload,
+    confirm_destructive,
+    idempotency_key_option,
+    preflight_billing,
+    resolve_idempotency_key,
+)
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="Standalone persistent Block Storage volumes", no_args_is_help=True)
@@ -46,14 +52,25 @@ def create_volume(
     backup_enabled: bool = typer.Option(
         True, "--backup-enabled/--no-backup", help="Enable volume backups"
     ),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Create a volume; billing metadata is always resolved by the server."""
+    key = resolve_idempotency_key(idempotency_key, "block-create", name)
+    settings = get_settings(ctx)
+    if settings.check_billing:
+        preflight_billing(
+            settings,
+            get_client(settings),
+            require_workspace(settings),
+            sku_code=sku_code,
+            resource_type="block_storage",
+        )
     _call(ctx, "POST", "block-storage/volumes", payload=compact_payload(
         name=name, size_gb=size_gb, site_id=site_id, site_name=site_name,
         sku_code=sku_code,
         volume_class=volume_class, replica_count=replica_count,
         backup_enabled=backup_enabled,
-        idempotency_key=new_idempotency_key("block-create", name),
+        idempotency_key=key,
     ))
 
 
@@ -81,11 +98,13 @@ def attach_volume(
     vm_state: Optional[str] = typer.Option(None, "--vm-state"),
     vm_site_id: Optional[str] = typer.Option(None, "--vm-site-id"),
     vm_type: str = typer.Option("cloud", "--vm-type"),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
+    key = resolve_idempotency_key(idempotency_key, "block-attach", volume_id)
     _call(ctx, "POST", f"block-storage/volumes/{_segment(volume_id)}/attachments", payload=compact_payload(
         node_name=node_name, mode=mode, vm_id=vm_id, vm_name=vm_name,
         vm_state=vm_state, vm_site_id=vm_site_id, vm_type=vm_type,
-        idempotency_key=new_idempotency_key("block-attach", volume_id),
+        idempotency_key=key,
     ))
 
 
@@ -101,13 +120,14 @@ def detach_volume(
     vm_type: str = typer.Option("cloud", "--vm-type"),
     reason: Optional[str] = typer.Option(None, "--reason"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    if not yes:
-        typer.confirm(f"Detach Block Storage volume '{volume_id}'?", abort=True)
+    key = resolve_idempotency_key(idempotency_key, "block-detach", volume_id)
+    confirm_destructive(get_settings(ctx), f"Detach Block Storage volume '{volume_id}'?", yes)
     _call(ctx, "POST", f"block-storage/volumes/{_segment(volume_id)}/detach", payload=compact_payload(
         node_name=node_name, force=force, confirm_unmounted=confirm_unmounted,
         vm_state=vm_state, vm_type=vm_type, reason=reason,
-        idempotency_key=new_idempotency_key("block-detach", volume_id),
+        idempotency_key=key,
     ))
 
 
@@ -119,10 +139,12 @@ def resize_volume(
     new_size_gb: int = typer.Option(..., "--new-size-gb", min=1, max=10000),
     allow_online: bool = typer.Option(False, "--allow-online"),
     vm_state: Optional[str] = typer.Option(None, "--vm-state"),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
+    key = resolve_idempotency_key(idempotency_key, "block-resize", volume_id)
     _call(ctx, "POST", f"block-storage/volumes/{_segment(volume_id)}/resize", payload=compact_payload(
         new_size_gb=new_size_gb, allow_online=allow_online, vm_state=vm_state,
-        idempotency_key=new_idempotency_key("block-resize", volume_id),
+        idempotency_key=key,
     ))
 
 
@@ -133,7 +155,18 @@ def delete_volume(
     volume_id: str = typer.Argument(...),
     force: bool = typer.Option(False, "--force"),
     yes: bool = typer.Option(False, "--yes", "-y"),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    if not yes:
-        typer.confirm(f"Delete Block Storage volume '{volume_id}'?", abort=True)
-    _call(ctx, "DELETE", f"block-storage/volumes/{_segment(volume_id)}", params={"force": force})
+    """Delete a volume.
+
+    The idempotency key is sent as a query parameter, which is not yet part of the
+    published API contract; behaviour may change.
+    """
+    key = resolve_idempotency_key(idempotency_key, "block-delete", volume_id)
+    confirm_destructive(get_settings(ctx), f"Delete Block Storage volume '{volume_id}'?", yes)
+    _call(
+        ctx,
+        "DELETE",
+        f"block-storage/volumes/{_segment(volume_id)}",
+        params={"force": force, "idempotency_key": key},
+    )

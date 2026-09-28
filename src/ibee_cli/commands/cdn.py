@@ -8,7 +8,7 @@ from urllib.parse import quote
 import typer
 
 from ..context import api_request, get_settings
-from ..helpers import compact_payload
+from ..helpers import compact_payload, confirm_destructive, preflight_create
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="CDN distributions and delivery configuration", no_args_is_help=True)
@@ -51,6 +51,7 @@ def create_distribution(ctx: typer.Context, name: str,
                         origin_id: str = typer.Option(..., "--origin-id"),
                         origin_type: str = typer.Option("bucket", "--origin-type"),
                         cache_policy: str = typer.Option("static-assets", "--cache-policy")) -> None:
+    preflight_create(get_settings(ctx), "cdn")
     _call(ctx, "POST", "cdn/distributions", payload={
         "name": name, "origin_id": origin_id, "origin_type": origin_type,
         "cache_policy": cache_policy,
@@ -79,8 +80,7 @@ def update_distribution(ctx: typer.Context, distribution_id: str,
 @handle_api_errors
 def delete_distribution(ctx: typer.Context, distribution_id: str,
                         yes: bool = typer.Option(False, "--yes", "-y")) -> None:
-    if not yes:
-        typer.confirm(f"Delete CDN distribution '{distribution_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete CDN distribution '{distribution_id}'?", yes)
     _call(ctx, "DELETE", f"cdn/distributions/{_segment(distribution_id)}")
 
 
@@ -102,8 +102,7 @@ def set_website(ctx: typer.Context, distribution_id: str,
 @handle_api_errors
 def delete_website(ctx: typer.Context, distribution_id: str,
                    yes: bool = typer.Option(False, "--yes", "-y")) -> None:
-    if not yes:
-        typer.confirm("Disable static website delivery?", abort=True)
+    confirm_destructive(get_settings(ctx), "Disable static website delivery?", yes)
     _call(ctx, "DELETE", f"cdn/distributions/{_segment(distribution_id)}/website-config")
 
 
@@ -116,6 +115,7 @@ def list_domains(ctx: typer.Context, distribution_id: str) -> None:
 @domains_app.command("create")
 @handle_api_errors
 def create_domain(ctx: typer.Context, distribution_id: str, domain: str) -> None:
+    preflight_create(get_settings(ctx), "custom_domain")
     _call(ctx, "POST", f"cdn/distributions/{_segment(distribution_id)}/custom-domains",
           payload={"domain": domain})
 
@@ -136,8 +136,7 @@ def verify_domain(ctx: typer.Context, distribution_id: str, domain: str) -> None
 @handle_api_errors
 def delete_domain(ctx: typer.Context, distribution_id: str, domain: str,
                   yes: bool = typer.Option(False, "--yes", "-y")) -> None:
-    if not yes:
-        typer.confirm(f"Remove custom domain '{domain}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Remove custom domain '{domain}'?", yes)
     _call(ctx, "DELETE", f"cdn/distributions/{_segment(distribution_id)}/custom-domains/{_segment(domain)}")
 
 

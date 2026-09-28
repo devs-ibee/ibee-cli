@@ -10,7 +10,7 @@ from typing import Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import parse_value
+from ..helpers import confirm_destructive, parse_value, preflight_create
 from ..render import handle_api_errors, print_json, print_table
 
 app = typer.Typer(
@@ -93,7 +93,7 @@ def list_stores(ctx: typer.Context) -> None:
     settings = get_settings(ctx)
     client = get_client(settings)
     result = client.secret_store.list_secret_stores(workspace_id=require_workspace(settings))
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     stores = result.stores or []
@@ -118,10 +118,11 @@ def create_store(
     settings = get_settings(ctx)
     client = get_client(settings)
     workspace = require_workspace(settings)
+    preflight_create(settings, "secret_store", client=client)
     result = client.secret_store.create_secret_store(
         workspace_id=workspace, name=name, description=description
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Store '{name}' created (id {getattr(result, 'id', '?')}).", fg=typer.colors.GREEN)
@@ -155,7 +156,7 @@ def update_store(
     result = client.secret_store.update_secret_store(
         workspace_id=require_workspace(settings), store_id=store_id, name=name, description=description
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Store '{store_id}' updated.", fg=typer.colors.GREEN)
@@ -170,8 +171,7 @@ def archive_store(
 ) -> None:
     """Archive a secret store."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(f"Archive secret store '{store_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Archive secret store '{store_id}'?", yes)
     client = get_client(settings)
     client.secret_store.archive_secret_store(
         workspace_id=require_workspace(settings), store_id=store_id
@@ -203,12 +203,12 @@ def permanently_delete_store(
 ) -> None:
     """Permanently delete a store and all store-scoped resources."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(
-            f"Permanently delete secret store '{store_id}' and all of its secrets, "
-            "versions, identities, and policies? This cannot be undone.",
-            abort=True,
-        )
+    confirm_destructive(
+        get_settings(ctx),
+        f"Permanently delete secret store '{store_id}' and all of its secrets, "
+        "versions, identities, and policies? This cannot be undone.",
+        yes,
+    )
     client = get_client(settings)
     client.secret_store.permanently_delete_secret_store(
         store_id, workspace_id=require_workspace(settings)
@@ -231,7 +231,7 @@ def list_identities(
         store_id,
         workspace_id=require_workspace(settings),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     identities = getattr(result, "identities", None) or []
@@ -301,7 +301,7 @@ def create_identity(
         token_policy_mode=token_policy_mode.value,
         **binding,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(
@@ -346,7 +346,7 @@ def update_identity(
         workspace_id=require_workspace(settings),
         token_policy_mode=token_policy_mode.value,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Identity '{identity_id}' updated.", fg=typer.colors.GREEN)
@@ -365,7 +365,7 @@ def disable_identity(
         identity_id,
         workspace_id=require_workspace(settings),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Identity '{identity_id}' disabled.", fg=typer.colors.GREEN)
@@ -384,7 +384,7 @@ def enable_identity(
         identity_id,
         workspace_id=require_workspace(settings),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Identity '{identity_id}' enabled.", fg=typer.colors.GREEN)
@@ -443,14 +443,13 @@ def revoke_identity_sessions(
 ) -> None:
     """Revoke active sessions without deleting or disabling the identity."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(f"Revoke all active sessions for identity '{identity_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Revoke all active sessions for identity '{identity_id}'?", yes)
     client = get_client(settings)
     result = client.secret_store.revoke_secret_identity_sessions(
         identity_id,
         workspace_id=require_workspace(settings),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Identity '{identity_id}' sessions revoked.", fg=typer.colors.GREEN)
@@ -465,12 +464,12 @@ def delete_identity(
 ) -> None:
     """Permanently delete an identity, its scopes, policy, role, and sessions."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(
-            f"Permanently delete identity '{identity_id}', all scopes, and all sessions? "
-            "This cannot be undone.",
-            abort=True,
-        )
+    confirm_destructive(
+        get_settings(ctx),
+        f"Permanently delete identity '{identity_id}', all scopes, and all sessions? "
+        "This cannot be undone.",
+        yes,
+    )
     client = get_client(settings)
     client.secret_store.delete_secret_identity(
         identity_id,
@@ -494,7 +493,7 @@ def list_identity_scopes(
         identity_id,
         workspace_id=require_workspace(settings),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     scopes = getattr(result, "scopes", None) or []
@@ -550,7 +549,7 @@ def create_identity_scope(
         allow_rollback=allow_rollback,
         allow_destroy=allow_destroy,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(
@@ -609,7 +608,7 @@ def update_identity_scope(
         workspace_id=require_workspace(settings),
         **changes,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Scope '{scope_id}' updated.", fg=typer.colors.GREEN)
@@ -624,11 +623,11 @@ def delete_identity_scope(
 ) -> None:
     """Delete an identity's access to a secret store."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(
-            f"Delete identity scope '{scope_id}' and remove its store access?",
-            abort=True,
-        )
+    confirm_destructive(
+        get_settings(ctx),
+        f"Delete identity scope '{scope_id}' and remove its store access?",
+        yes,
+    )
     client = get_client(settings)
     client.secret_store.delete_secret_identity_scope(
         scope_id,
@@ -651,7 +650,7 @@ def list_secrets(
     result = client.secret_store.list_secrets(
         workspace_id=require_workspace(settings), store_id=store_id
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     secrets = getattr(result, "secrets", None) or []
@@ -677,13 +676,14 @@ def create_secret(
     settings = get_settings(ctx)
     client = get_client(settings)
     workspace = require_workspace(settings)
+    preflight_create(settings, "secret", client=client)
     result = client.secret_store.create_secret(
         workspace_id=workspace,
         store_id=store_id,
         secret_name=name,
         value=parse_value(value),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Secret '{name}' created (id {getattr(result, 'id', '?')}).", fg=typer.colors.GREEN)
@@ -713,7 +713,7 @@ def batch_create_secrets(
         workspace_id=require_workspace(settings),
         secrets=_load_batch(file),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(
@@ -769,7 +769,7 @@ def set_value(
         value=parse_value(value),
         cas=cas,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Secret '{secret_id}' value updated.", fg=typer.colors.GREEN)
@@ -790,7 +790,7 @@ def patch_value(
         workspace_id=require_workspace(settings),
         value=parse_value(value),
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Secret '{secret_id}' value patched.", fg=typer.colors.GREEN)
@@ -842,7 +842,7 @@ def rollback_secret(
         workspace_id=require_workspace(settings),
         version=version,
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     typer.secho(f"Secret '{secret_id}' rolled back from version {version}.", fg=typer.colors.GREEN)
@@ -877,11 +877,11 @@ def destroy_versions(
     """Irreversibly destroy selected secret versions."""
     parsed_versions = _parse_versions(versions)
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(
-            f"Destroy versions {parsed_versions} of secret '{secret_id}'? This cannot be undone.",
-            abort=True,
-        )
+    confirm_destructive(
+        get_settings(ctx),
+        f"Destroy versions {parsed_versions} of secret '{secret_id}'? This cannot be undone.",
+        yes,
+    )
     client = get_client(settings)
     client.secret_store.destroy_secret_versions(
         secret_id,
@@ -900,11 +900,11 @@ def permanently_delete_secret(
 ) -> None:
     """Permanently delete all versions and metadata. This cannot be undone."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(
-            f"Permanently delete secret '{secret_id}' and all versions? This cannot be undone.",
-            abort=True,
-        )
+    confirm_destructive(
+        get_settings(ctx),
+        f"Permanently delete secret '{secret_id}' and all versions? This cannot be undone.",
+        yes,
+    )
     client = get_client(settings)
     client.secret_store.permanently_delete_secret(
         secret_id, workspace_id=require_workspace(settings)
@@ -921,8 +921,7 @@ def delete_secret(
 ) -> None:
     """Delete (soft) a secret."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(f"Delete secret '{secret_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete secret '{secret_id}'?", yes)
     client = get_client(settings)
     client.secret_store.delete_secret(
         workspace_id=require_workspace(settings), secret_id=secret_id

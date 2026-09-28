@@ -10,7 +10,17 @@ from typing import List, Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import compact_payload, finish_operation, new_idempotency_key, parse_json_object
+from ..helpers import (
+    compact_payload,
+    confirm_destructive,
+    finish_operation,
+    idempotency_key_option,
+    parse_json_object,
+    poll_interval_option,
+    resolve_idempotency_key,
+    resolve_wait,
+    timeout_option,
+)
 from ..render import handle_api_errors, print_json
 
 
@@ -207,8 +217,13 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         ),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip SSH-key removal confirmation"),
         wait: bool = typer.Option(False, "--wait", help="Poll until the access update completes"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Change SSH keys, the admin password, or password authentication."""
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-access", vm_id)
         new_password = _read_new_password(password_stdin, prompt_password)
         refs = _secret_refs(ssh_key_secret_ref)
         _require_change(
@@ -220,13 +235,13 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         )
         if ssh_key_mode not in (None, "add", "remove"):
             raise typer.BadParameter("--ssh-key-mode must be add or remove.")
-        if ssh_key_mode == "remove" and not yes:
-            typer.confirm(f"Remove SSH access from {spec.label} '{vm_id}'?", abort=True)
+        if ssh_key_mode == "remove":
+            confirm_destructive(get_settings(ctx), f"Remove SSH access from {spec.label} '{vm_id}'?", yes)
         settings, workspace, client, resource = _resource(ctx, spec)
         result = getattr(resource, f"update_{spec.method_fragment}_access")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-access", vm_id),
+            idempotency_key=key,
             **compact_payload(
                 requested_by=requested_by,
                 admin_username=admin_username,
@@ -239,7 +254,10 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
                 confirm_remove_last_ssh_key=confirm_remove_last_ssh_key,
             ),
         )
-        finish_operation(settings, client, workspace, result, "Access update", vm_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Access update", vm_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("resize-precheck")
     @handle_api_errors
@@ -271,17 +289,25 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         disk_gb: Optional[int] = typer.Option(None, "--disk-gb"),
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         wait: bool = typer.Option(False, "--wait", help="Poll until the resize completes"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Resize CPU, memory, and optionally grow the root disk."""
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-resize", vm_id)
         _require_change(cpu=cpu, ram_mb=ram_mb, disk_gb=disk_gb)
         settings, workspace, client, resource = _resource(ctx, spec)
         result = _method(resource, spec, "resize")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-resize", vm_id),
+            idempotency_key=key,
             **compact_payload(cpu=cpu, ram_mb=ram_mb, disk_gb=disk_gb, requested_by=requested_by),
         )
-        finish_operation(settings, client, workspace, result, "Resize", vm_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Resize", vm_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("resize-plan")
     @handle_api_errors
@@ -294,13 +320,18 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         confirm_downgrade: bool = typer.Option(False, "--confirm-downgrade", help="Explicitly permit a smaller shape"),
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         wait: bool = typer.Option(False, "--wait"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Change the CPU and memory shape, with explicit downgrade consent."""
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-resize-plan", vm_id)
         settings, workspace, client, resource = _resource(ctx, spec)
         result = getattr(resource, f"resize_{spec.method_fragment}_plan")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-resize-plan", vm_id),
+            idempotency_key=key,
             cpu=cpu,
             ram_mb=ram_mb,
             **compact_payload(
@@ -309,7 +340,10 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
                 requested_by=requested_by,
             ),
         )
-        finish_operation(settings, client, workspace, result, "Plan resize", vm_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Plan resize", vm_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("resize-root-disk")
     @handle_api_errors
@@ -320,17 +354,25 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         allow_online: Optional[bool] = typer.Option(None, "--allow-online/--no-allow-online"),
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         wait: bool = typer.Option(False, "--wait"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Grow the root disk; shrinking is not supported."""
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-resize-disk", vm_id)
         settings, workspace, client, resource = _resource(ctx, spec)
         result = getattr(resource, f"resize_{spec.method_fragment}_root_disk")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-resize-disk", vm_id),
+            idempotency_key=key,
             new_size_gb=new_size_gb,
             **compact_payload(allow_online=_optional_bool(allow_online), requested_by=requested_by),
         )
-        finish_operation(settings, client, workspace, result, "Root-disk resize", vm_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Root-disk resize", vm_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("volume-attach")
     @handle_api_errors
@@ -341,19 +383,27 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         mode: Optional[str] = typer.Option(None, "--mode", help="single-writer or multi-writer"),
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         wait: bool = typer.Option(False, "--wait"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Attach a persistent block volume."""
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-volume-attach", volume_id)
         if mode not in (None, "single-writer", "multi-writer"):
             raise typer.BadParameter("--mode must be single-writer or multi-writer.")
         settings, workspace, client, resource = _resource(ctx, spec)
         result = getattr(resource, f"attach_{spec.method_fragment}_volume")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-volume-attach", volume_id),
+            idempotency_key=key,
             volume_id=volume_id,
             **compact_payload(mode=mode, requested_by=requested_by),
         )
-        finish_operation(settings, client, workspace, result, "Volume attach", volume_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Volume attach", volume_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("volume-detach")
     @handle_api_errors
@@ -366,15 +416,19 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
         wait: bool = typer.Option(False, "--wait"),
+        timeout: Optional[float] = timeout_option(),
+        poll_interval: Optional[float] = poll_interval_option(),
+        idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
         """Detach a persistent block volume after guest unmount."""
-        if not yes:
-            typer.confirm(f"Detach volume '{volume_id}' from {spec.label} '{vm_id}'?", abort=True)
+        wait_config = resolve_wait(wait, timeout, poll_interval)
+        key = resolve_idempotency_key(idempotency_key, f"{spec.kind}-volume-detach", volume_id)
+        confirm_destructive(get_settings(ctx), f"Detach volume '{volume_id}' from {spec.label} '{vm_id}'?", yes)
         settings, workspace, client, resource = _resource(ctx, spec)
         result = getattr(resource, f"detach_{spec.method_fragment}_volume")(
             vm_id,
             workspace_id=workspace,
-            idempotency_key=new_idempotency_key(f"{spec.kind}-volume-detach", volume_id),
+            idempotency_key=key,
             volume_id=volume_id,
             **compact_payload(
                 force=_optional_bool(force),
@@ -382,7 +436,10 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
                 requested_by=requested_by,
             ),
         )
-        finish_operation(settings, client, workspace, result, "Volume detach", volume_id, wait)
+        finish_operation(
+            settings, client, workspace, result, "Volume detach", volume_id, wait_config,
+            idempotency_key=key,
+        )
 
     @app.command("mount-guidance-acknowledge")
     @handle_api_errors
@@ -513,8 +570,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     ) -> None:
         """Delete a snapshot set and its recovery points."""
-        if not yes:
-            typer.confirm(f"Delete snapshot set '{snapshot_set_id}'?", abort=True)
+        confirm_destructive(get_settings(ctx), f"Delete snapshot set '{snapshot_set_id}'?", yes)
         _settings, workspace, _client, resource = _resource(ctx, spec)
         result = getattr(resource, f"delete_{spec.method_fragment}_snapshot")(
             snapshot_set_id, workspace_id=workspace
@@ -558,8 +614,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         """Restore a snapshot by replacing a VM, creating a VM, or restoring a volume."""
         if target_mode not in (None, "replace", "new_vm", "volume_only"):
             raise typer.BadParameter("--target-mode must be replace, new_vm, or volume_only.")
-        if not yes:
-            typer.confirm(f"Restore snapshot '{snapshot_set_id}' for {spec.label} '{vm_id}'?", abort=True)
+        confirm_destructive(get_settings(ctx), f"Restore snapshot '{snapshot_set_id}' for {spec.label} '{vm_id}'?", yes)
         _settings, workspace, _client, resource = _resource(ctx, spec)
         result = getattr(resource, f"restore_{spec.method_fragment}_snapshot")(
             snapshot_set_id,
@@ -810,8 +865,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         """Restore a backup by replacing a VM, creating a VM, or restoring a volume."""
         if target_mode not in (None, "replace", "new_vm", "volume_only"):
             raise typer.BadParameter("--target-mode must be replace, new_vm, or volume_only.")
-        if not yes:
-            typer.confirm(f"Restore recovery point '{recovery_point_id}' for {spec.label} '{vm_id}'?", abort=True)
+        confirm_destructive(get_settings(ctx), f"Restore recovery point '{recovery_point_id}' for {spec.label} '{vm_id}'?", yes)
         _settings, workspace, _client, resource = _resource(ctx, spec)
         result = getattr(resource, f"restore_{spec.method_fragment}_backup")(
             vm_id,

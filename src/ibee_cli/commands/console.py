@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from ..context import get_client, get_settings, require_workspace
-from ..helpers import compact_payload
+from ..helpers import compact_payload, confirm_destructive
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="Short-lived VM console sessions", no_args_is_help=True)
@@ -66,8 +66,7 @@ def close_session(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
     """Close a console session immediately."""
-    if not yes:
-        typer.confirm(f"Close console session '{session_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Close console session '{session_id}'?", yes)
     settings = get_settings(ctx)
     result = get_client(settings).vm_console.close_vm_console_session(
         session_id,

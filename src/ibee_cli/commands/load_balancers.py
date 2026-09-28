@@ -8,6 +8,8 @@ import typer
 
 from ..context import api_request, get_settings
 from ..helpers import (
+    preflight_create,
+    confirm_destructive,
     compact_payload,
     parse_json_array,
     parse_json_object,
@@ -108,6 +110,8 @@ def create_l4_load_balancer(
 ) -> None:
     """Create an L4 load balancer."""
 
+    preflight_create(get_settings(ctx), "load_balancer")
+
     _call(
         ctx,
         "POST",
@@ -139,6 +143,8 @@ def create_l7_load_balancer(
     rules: Optional[str] = typer.Option(None, "--rules", help="Rules JSON array"),
 ) -> None:
     """Create an L7 load balancer."""
+
+    preflight_create(get_settings(ctx), "load_balancer")
 
     _call(
         ctx,
@@ -233,8 +239,7 @@ def delete_load_balancer(
 ) -> None:
     """Delete a load balancer."""
 
-    if not yes:
-        typer.confirm(f"Delete load balancer '{load_balancer_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete load balancer '{load_balancer_id}'?", yes)
     _call(
         ctx,
         "DELETE",

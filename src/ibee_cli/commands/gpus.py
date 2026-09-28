@@ -4,15 +4,23 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ibee.validation import SORT_DIRECTIONS, VM_SORT_FIELDS, validate_vm_list_params
+
 import typer
 
 from ..context import get_client, get_settings, require_workspace
 from ..helpers import (
+    confirm_destructive,
     finish_operation,
-    new_idempotency_key,
+    idempotency_key_option,
+    poll_interval_option,
+    preflight_billing,
+    resolve_idempotency_key,
+    resolve_wait,
     response_items,
+    timeout_option,
 )
-from ..render import handle_api_errors, print_json, print_table
+from ..render import cell, handle_api_errors, print_json, print_table
 from .vm_lifecycle import GPU_VM, register_vm_lifecycle
 
 app = typer.Typer(help="GPU VMs", no_args_is_help=True)
@@ -21,12 +29,34 @@ register_vm_lifecycle(app, GPU_VM)
 
 @app.command("list")
 @handle_api_errors
-def list_gpu_vms(ctx: typer.Context) -> None:
-    """List GPU VMs in the workspace."""
+def list_gpu_vms(
+    ctx: typer.Context,
+    limit: Optional[int] = typer.Option(
+        None, "--limit", min=1, max=100, help="Return one page of at most N VMs (1-100)"
+    ),
+    offset: Optional[int] = typer.Option(None, "--offset", min=0, help="Skip N VMs (one page)"),
+    search: Optional[str] = typer.Option(None, "--search", help="Filter by text (max 120 characters)"),
+    sort_by: Optional[str] = typer.Option(
+        None, "--sort-by", help="Sort field: " + ", ".join(VM_SORT_FIELDS)
+    ),
+    sort_direction: Optional[str] = typer.Option(
+        None, "--sort-direction", help="Sort direction: " + ", ".join(SORT_DIRECTIONS)
+    ),
+) -> None:
+    """List GPU VMs in the workspace.
+
+    Without --limit/--offset every page is fetched; with either, one page is returned.
+    The paging, search and sort options are not yet part of the published API
+    contract; behaviour may change.
+    """
     settings = get_settings(ctx)
+    paging = validate_vm_list_params(
+        limit=limit, offset=offset, search=search, sort_by=sort_by, sort_direction=sort_direction
+    )
+    workspace = require_workspace(settings)
     client = get_client(settings)
-    result = client.gpu_vms.list_gpu_vms(workspace_id=require_workspace(settings))
-    if settings.as_json:
+    result = client.gpu_vms.list_gpu_vms(workspace_id=workspace, **paging)
+    if settings.structured_output:
         print_json(result)
         return
     vms = response_items(result, "items", "vms")
@@ -34,10 +64,11 @@ def list_gpu_vms(ctx: typer.Context) -> None:
         "GPU VMs",
         ["ID", "Name", "Status", "GPU", "GPUs", "CPU", "RAM (MB)", "Public IP"],
         [
-            (
-                v.id, v.name, getattr(v.status, "value", v.status),
-                getattr(v, "gpu_model", None), getattr(v, "gpu_count", None),
-                v.cpu, v.ram_mb, v.public_ip,
+            tuple(
+                cell(v, name)
+                for name in (
+                    "id", "name", "status", "gpu_model", "gpu_count", "cpu", "ram_mb", "public_ip"
+                )
             )
             for v in vms
         ],
@@ -76,14 +107,20 @@ def create_gpu_vm(
     ssh_key_id: Optional[List[str]] = typer.Option(None, "--ssh-key-id", help="SSH key ID to inject (repeatable)"),
     tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag (repeatable)"),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is provisioned"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Create a GPU VM (async — returns an operation)."""
     settings = get_settings(ctx)
+    wait_config = resolve_wait(wait, timeout, poll_interval)
+    key = resolve_idempotency_key(idempotency_key, "gpu-create", name)
     workspace = require_workspace(settings)
     client = get_client(settings)
+    preflight_billing(settings, client, workspace, resource_type="gpu_vm")
     create_args = dict(
         workspace_id=workspace,
-        idempotency_key=new_idempotency_key("gpu-create", name),
+        idempotency_key=key,
         name=name,
         os_distro=os_distro,
         os_type=os_type,
@@ -100,7 +137,9 @@ def create_gpu_vm(
     if site_id is not None:
         create_args["site_id"] = site_id
     result = client.gpu_vms.create_gpu_vm(**create_args)
-    finish_operation(settings, client, workspace, result, "Create", name, wait)
+    finish_operation(
+        settings, client, workspace, result, "Create", name, wait_config, idempotency_key=key
+    )
 
 
 @app.command("delete")
@@ -110,19 +149,25 @@ def delete_gpu_vm(
     vm_id: str = typer.Argument(..., help="GPU VM ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is deleted"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Delete a GPU VM (async — returns an operation)."""
     settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(f"Delete GPU VM '{vm_id}'?", abort=True)
+    wait_config = resolve_wait(wait, timeout, poll_interval)
+    key = resolve_idempotency_key(idempotency_key, "gpu-delete", vm_id)
+    confirm_destructive(settings, f"Delete GPU VM '{vm_id}'?", yes)
     workspace = require_workspace(settings)
     client = get_client(settings)
     result = client.gpu_vms.delete_gpu_vm(
         vm_id=vm_id,
         workspace_id=workspace,
-        idempotency_key=new_idempotency_key("gpu-delete", vm_id),
+        idempotency_key=key,
     )
-    finish_operation(settings, client, workspace, result, "Delete", vm_id, wait)
+    finish_operation(
+        settings, client, workspace, result, "Delete", vm_id, wait_config, idempotency_key=key
+    )
 
 
 @app.command("metrics")
@@ -144,20 +189,28 @@ def _power_action(
     action: str,
     wait: bool,
     force: Optional[bool] = None,
+    timeout: Optional[float] = None,
+    poll_interval: Optional[float] = None,
+    idempotency_key: Optional[str] = None,
 ) -> None:
     settings = get_settings(ctx)
+    wait_config = resolve_wait(wait, timeout, poll_interval)
+    key = resolve_idempotency_key(idempotency_key, action, vm_id)
     workspace = require_workspace(settings)
     client = get_client(settings)
     method = getattr(client.gpu_vms, f"{action}_gpu_vm")
     power_args = dict(
         workspace_id=workspace,
         vm_id=vm_id,
-        idempotency_key=new_idempotency_key(action, vm_id),
+        idempotency_key=key,
     )
     if force is not None:
         power_args["force"] = force
     result = method(**power_args)
-    finish_operation(settings, client, workspace, result, action.capitalize(), vm_id, wait)
+    finish_operation(
+        settings, client, workspace, result, action.capitalize(), vm_id, wait_config,
+        idempotency_key=key,
+    )
 
 
 @app.command("start")
@@ -167,9 +220,12 @@ def start_gpu_vm(
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until started"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Start a GPU VM."""
-    _power_action(ctx, vm_id, "start", wait, force)
+    _power_action(ctx, vm_id, "start", wait, force, timeout, poll_interval, idempotency_key)
 
 
 @app.command("stop")
@@ -179,9 +235,12 @@ def stop_gpu_vm(
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until stopped"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Stop a GPU VM."""
-    _power_action(ctx, vm_id, "stop", wait, force)
+    _power_action(ctx, vm_id, "stop", wait, force, timeout, poll_interval, idempotency_key)
 
 
 @app.command("reboot")
@@ -191,6 +250,9 @@ def reboot_gpu_vm(
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
     wait: bool = typer.Option(False, "--wait", help="Poll until rebooted"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
     """Reboot a GPU VM."""
-    _power_action(ctx, vm_id, "reboot", wait, force)
+    _power_action(ctx, vm_id, "reboot", wait, force, timeout, poll_interval, idempotency_key)

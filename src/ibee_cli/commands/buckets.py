@@ -8,6 +8,8 @@ import typer
 
 from ..context import api_request, get_settings
 from ..helpers import (
+    preflight_create,
+    confirm_destructive,
     compact_payload,
     parse_json_object,
 )
@@ -62,7 +64,7 @@ def list_buckets(
         "object-storage/buckets",
         params={"limit": limit, "continuation_token": continuation_token},
     )
-    if settings.as_json:
+    if settings.structured_output:
         print_json(result)
         return
     buckets = result.get("buckets", []) if isinstance(result, dict) else []
@@ -108,6 +110,8 @@ def create_bucket(
     tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag (repeatable)"),
 ) -> None:
     """Create a bucket."""
+
+    preflight_create(get_settings(ctx), "object_storage")
 
     if default_retention is not None and not bucket_lock:
         raise typer.BadParameter(
@@ -176,8 +180,7 @@ def delete_bucket(
 ) -> None:
     """Delete a bucket and all of its contents."""
 
-    if not yes:
-        typer.confirm(f"Delete bucket '{name}' and all of its contents?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete bucket '{name}' and all of its contents?", yes)
     result = _call(ctx, "DELETE", f"object-storage/buckets/{name}")
     if result is not None:
         print_json(result)
@@ -209,6 +212,8 @@ def create_credential(
     ),
 ) -> None:
     """Create an S3 access key; its secret is displayed only once."""
+
+    preflight_create(get_settings(ctx), "resource")
 
     if bucket_scope == "specific" and not allowed_bucket:
         raise typer.BadParameter(
@@ -259,8 +264,7 @@ def revoke_credential(
 ) -> None:
     """Permanently revoke an S3 credential."""
 
-    if not yes:
-        typer.confirm(f"Revoke S3 credential '{access_key_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Revoke S3 credential '{access_key_id}'?", yes)
     result = _call(
         ctx, "DELETE", f"object-storage/credentials/{access_key_id}"
     )

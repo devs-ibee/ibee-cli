@@ -7,7 +7,7 @@ from typing import Optional
 import typer
 
 from ..context import api_request, get_settings
-from ..helpers import compact_payload
+from ..helpers import compact_payload, confirm_destructive, preflight_create
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="Reserve and attach public IP addresses", no_args_is_help=True)
@@ -50,6 +50,8 @@ def reserve_ip(
     label: str = typer.Option("", "--label"),
 ) -> None:
     """Reserve a public IP address."""
+
+    preflight_create(get_settings(ctx), "reserved_ip")
 
     _call(
         ctx,
@@ -154,8 +156,7 @@ def release_reserved_ip(
 ) -> None:
     """Release a Reserved IP."""
 
-    if not yes:
-        typer.confirm(f"Release Reserved IP '{reserved_ip_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Release Reserved IP '{reserved_ip_id}'?", yes)
     _call(
         ctx,
         "DELETE",
