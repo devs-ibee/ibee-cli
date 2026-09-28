@@ -343,8 +343,12 @@ anything is sent, and a broken rule exits 2:
   which must fit the captured root disk), its SKU and default names;
   `volume_only` needs `--selected-volume-id`. `--wait` on snapshot, backup and
   restore commands polls every 5 s for up to 30 minutes by default.
-- `backups list-all` and `backups delete` are not yet part of the published API
-  contract; behaviour may change.
+- `backups list-all` and `backups delete` need the backend release that provides
+  them: available on the development environment (`--dev`) today; production
+  returns 404/405 until then. They are not yet part of the published API contract;
+  behaviour may change.
+- `backups restore` accepts a backup run ID or a recovery point ID; the run is always
+  read first and the recovery point ID it reports is sent.
 
 ## Networking rules the CLI applies
 
@@ -362,7 +366,10 @@ on) controls the read-only checks that need the current state.
   gateway will not be metered.
 - **VPC delete** is refused while nodes are attached, a NAT gateway exists (unless
   `--delete-nat-gateway`, which deletes it and waits up to 10 s first) or virtual
-  IPs remain.
+  IPs remain. The Python SDK runs these checks after the confirmation and before
+  anything is deleted (virtual IPs are checked before the NAT gateway is deleted). If
+  the NAT gateway is still reconciling when the wait ends, the command exits 1 with a
+  retry hint.
 - **Subnets** must lie inside the VPC CIDR, not overlap other subnets, be /29 or
   larger, and a VPC holds at most 10. `--cidr` and `--prefix-length` are exclusive.
 - **Node attach** `--private-ip` must be a usable host of the subnet (not its
@@ -564,7 +571,7 @@ you can repeat the command without creating the resource twice.
 | Code | Meaning |
 | --- | --- |
 | 0 | Success (including a billing denial reported by `billing eligibility` without `--require`) |
-| 1 | API error, network error, failed/cancelled/timed-out operation, declined confirmation, or billing denial |
+| 1 | API error, network error, failed/cancelled/timed-out operation, declined confirmation, billing denial, or a server-state condition reported by the SDK (printed with its hint, for example a NAT gateway still reconciling during `vpcs delete --delete-nat-gateway`) |
 | 2 | Usage or client-side validation error (missing token/workspace, invalid workspace ID, token/endpoint mismatch, invalid idempotency key, invalid `IBEE_ENV`, conflicting `--json`/`-o`) |
 | 3 | `--wait` reached `--timeout` while the operation was still running; resume with `ibee ops wait OPERATION_ID` |
 

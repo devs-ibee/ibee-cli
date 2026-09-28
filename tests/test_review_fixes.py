@@ -176,14 +176,16 @@ def test_vm_volume_wait_uses_the_portal_cadence(sdk, monkeypatch, command):
 # ---------------------------------------------------------------------------
 
 
-def test_vpc_delete_exits_3_while_the_nat_gateway_reconciles(gw):
+def test_vpc_delete_exits_1_while_the_nat_gateway_reconciles(gw):
+    # The SDK raises a plain IbeeError (nat_gateway_deleting): server state, so exit 1 with the hint.
     gw.on("GET", V, vpc(nat_gateways=[gateway_record()]))
     gw.on("GET", f"{V}/virtual-ips", [])
     gw.on("GET", f"{V}/nat-gateways", [gateway_record()])
     gw.on("DELETE", f"{V}/nat-gateways/nat-1", gateway_record(status="deleting"))
     result = run(["vpcs", "delete", "vpc-1", "--delete-nat-gateway", "--nat-ip-action", "release", "--yes"])
-    assert result.exit_code == 3, result.output
-    assert "ibee vpcs delete vpc-1" in plain(result)
+    assert result.exit_code == 1, result.output
+    assert "still reconciling" in plain(result)
+    assert "Retry 'ibee vpcs delete vpc-1' shortly (check with: ibee vpcs nat list vpc-1)." in plain(result)
     assert ("DELETE", V) not in [(c.method, c.path) for c in gw.calls]
 
 

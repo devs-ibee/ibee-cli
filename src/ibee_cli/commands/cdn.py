@@ -13,7 +13,7 @@ import re
 from typing import Any, List, Optional
 
 import typer
-from ibee.errors import ForbiddenError, NotFoundError, OperationTimeoutError
+from ibee.errors import NotFoundError, OperationTimeoutError
 from ibee.validation import (
     CDN_CACHE_POLICIES,
     CDN_METRICS_RANGES,
@@ -21,9 +21,7 @@ from ibee.validation import (
     CDN_PURGE_ALL_WARNING,
     CDN_PURGE_MODES,
     CDN_URL_DISPOSITIONS,
-    build_cdn_distribution_create_body,
     build_cdn_purge_body,
-    check_cdn_origin_public,
     normalize_cdn_domain,
     validate_required_text,
 )
@@ -163,25 +161,16 @@ def create_distribution(
     """
 
     settings, workspace, client = _session(ctx)
-    body = build_cdn_distribution_create_body(
-        name=name, origin_id=origin_id, origin_type=origin_type, cache_policy=cache_policy
-    )
-    if check_origin and body["origin_type"] == "bucket":
-        # Best-effort pre-step: an unreadable bucket (404, or 403 without
-        # object-storage.read) is left for the API to check.
-        try:
-            bucket = client.object_storage.get_bucket(body["origin_id"], workspace_id=workspace)
-        except (NotFoundError, ForbiddenError):
-            bucket = None
-        if bucket is not None:
-            check_cdn_origin_public(bucket)
+    # The SDK validates the request, then (with check_origin_public) reads the origin bucket and
+    # refuses a private one; an unreadable bucket (404, or 403 without object-storage.read) is
+    # left for the API to check.
     _print(client.cdn.create_cdn_distribution(
         workspace_id=workspace,
         name=name,
         origin_id=origin_id,
         origin_type=origin_type,
         cache_policy=cache_policy,
-        check_origin_public=False,
+        check_origin_public=check_origin,
         preflight_billing=preflight or settings.check_billing,
     ))
 

@@ -56,7 +56,9 @@ Requires `ibee>=0.4.0,<0.5.0`.
   `--subnet-id`, `--network-connectivity`, `--ssh-key-id` on restores;
   `--restorable-only` on `backups list`.
 - New `ibee vms|gpus backups list-all` and `ibee vms|gpus backups delete RUN_ID`
-  (not yet part of the published API contract; behaviour may change).
+  (not yet part of the published API contract; behaviour may change). They need the
+  backend release that provides these operations: available on the development
+  environment today; production returns 404/405 until that release.
 - Validation errors print their details (for example a resize precheck's decision,
   reasons and warnings), and a 409 resize conflict prints its decision and reasons.
 - Networking follows the portal (see "Networking rules the CLI applies" in the
@@ -290,8 +292,8 @@ Requires `ibee>=0.4.0,<0.5.0`.
     (not both), as the SDK and API do.
   - `vms|gpus volume-attach` and `volume-detach --wait` poll every 2 s for up to 120 s
     by default, as the portal does.
-  - `vpcs delete --delete-nat-gateway` exits 3 (not 2) when the NAT gateway was
-    deleted but is still reconciling.
+  - `vpcs delete --delete-nat-gateway` exits 1 (not 2) with a retry hint when the NAT
+    gateway was deleted but is still reconciling.
   - `vpcs virtual-ips attach-ip` checks that the Reserved IP is in the virtual IP's
     site, is unattached and is in `reserved` state before sending.
   - `firewalls list --summary --limit 100` checks for a next page instead of assuming
@@ -303,7 +305,7 @@ Requires `ibee>=0.4.0,<0.5.0`.
   - `buckets credentials create -o id` prints the full result, so the one-time secret
     is never dropped.
   - `cdn create` skips the origin-bucket check when the token cannot read the bucket
-    (403), as for a 404.
+    (403), as for a 404 (the Python SDK now applies this rule itself).
   - `block-storage create --check-billing` validates the request before the billing
     preflight, and plan errors (400 size/SKU, 502 `ambiguous_block_storage_plan`)
     print guidance.
@@ -317,3 +319,28 @@ Requires `ibee>=0.4.0,<0.5.0`.
   - The Secret Store page hint names the next page and is not printed on the last page.
   - A server refusal that the SDK reports as a validation error (Reserved IP target
     without a VPC, firewall attach to a non-OVS/OVN network) exits 1 with its hint.
+
+- Cross-client alignment (0.4.0):
+  - Any other error the SDK raises about server state (an `IbeeError` that is not a
+    validation error, for example `nat_gateway_deleting`) exits 1 with its hint;
+    client-side validation still exits 2.
+  - `vpcs delete` leaves the attached-node, NAT gateway and virtual-IP checks to the
+    SDK, which reads the VPC once and checks virtual IPs before any NAT gateway is
+    deleted (also with `--delete-nat-gateway`). The confirmation is asked before these
+    reads; the refusal messages are unchanged. With `--delete-nat-gateway` the prompt
+    is always "Delete NAT gateway(s) and then VPC ...?".
+  - `vpcs virtual-ips delete` leaves the Reserved IP and port-forwarding-rule checks to
+    the SDK (asked before the reads, same messages; `--check-state` makes an
+    unreadable dependency an error, exit 1).
+  - `cdn create --check-origin` uses the SDK's origin check (a 403 or 404 on the bucket
+    read is left for the API; a private bucket exits 2).
+  - `vms|gpus backups restore` accepts a backup run ID or a recovery point ID: the SDK
+    always reads the run (also with `--no-check-state`), refuses a backup that has not
+    succeeded, and sends the recovery point ID the run reports.
+  - `vms|gpus backups delete` and `backups list-all` help states that they need the
+    backend release (development today; production returns 404/405 until then).
+  - Validation codes follow the SDK's canonical table: `invalid_nat_public_ip_action`
+    (was `invalid_option`, `vpcs delete --nat-ip-action` without
+    `--delete-nat-gateway`), `invalid_all` (was `invalid_paging`, `firewalls list
+    --all` with `--limit`/`--offset`) and `reserved_ip_not_attached` (was
+    `virtual_ip_no_reserved_ip`, `vpcs virtual-ips detach-ip`).
