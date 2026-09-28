@@ -28,6 +28,37 @@ Requires `ibee>=0.4.0,<0.5.0`.
 - `--limit`, `--offset`, `--search`, `--sort-by`, `--sort-direction` on
   `vms list` and `gpus list`; `--limit` and `--offset` on `firewalls list`.
 - Exit code 3 for a `--wait` that times out while the operation is still running.
+- VM and GPU VM create follow the portal deploy flow: `--billing-term`,
+  `--billing-catalog[-file]`, `--windows-license[-file]` (cloud), inline
+  `--ssh-key`/`--ssh-key-file`, `--firewall-group-id`, `--vpc-id`, `--subnet-id`,
+  `--network-connectivity`, `--reserved-public-ip-id`, `--requested-by`,
+  `--preflight-billing`, and `--count 1-5` with `--instance-name` for batch creates
+  (one request and idempotency key per VM; `--idempotency-key K` becomes `K-1..K-N`).
+- VM delete asks whether to keep an auto-assigned public IP as a Reserved IP, with
+  `--reserve-public-ip`, `--release-public-ip`, `--reserved-ip-label`,
+  `--reserved-ip-billing-catalog[-file]` and `--preflight-billing`, and warns that
+  attached data volumes are detached.
+- `--check-state/--no-check-state` (default on) on start, stop, reboot, delete,
+  access-update, resize, resize-plan, resize-root-disk, volume-attach,
+  volume-detach, snapshot create/delete/restore, backup-policy update, backup
+  create/delete/restore and `console create`.
+- `--plan-id` on `resize-precheck`, `resize` and `resize-plan`; `--billing-term`,
+  `--billing-catalog[-file]` and `--windows-license[-file]` on `resize` and
+  `resize-plan`; `--billing-catalog[-file]` on `resize-root-disk` and
+  `volume-attach`.
+- `--ssh-key-file` on `access-update`; `--all` on `vms list` and `gpus list`.
+- Recovery: `--billing-catalog[-file]` on `snapshots create`, `backup-policy enable`,
+  `backup-policy update` and `backups create`; `--preflight-billing` on
+  `snapshots create`; `--wait` on `snapshots create`, `snapshots restore`,
+  `snapshots restore-status`, `backups create`, `backups restore` and
+  `backups restore-status` (default timeout 1800 s); `--target-volume-name
+  SRC=NAME`, `--target-billing-catalog[-file]`, and (snapshots) `--vpc-id`,
+  `--subnet-id`, `--network-connectivity`, `--ssh-key-id` on restores;
+  `--restorable-only` on `backups list`.
+- New `ibee vms|gpus backups list-all` and `ibee vms|gpus backups delete RUN_ID`
+  (not yet part of the published API contract; behaviour may change).
+- Validation errors print their details (for example a resize precheck's decision,
+  reasons and warnings), and a 409 resize conflict prints its decision and reasons.
 
 ### Changed
 
@@ -57,3 +88,22 @@ Requires `ibee>=0.4.0,<0.5.0`.
 - Generated idempotency keys use the portal format
   (`cli-<action>-<id>-<hash>-<random>`), sanitised to letters, digits, `-` and `_`.
 - With `-o json|yaml|id`, `--wait` prints only the final operation on stdout.
+- `vms create` and `gpus create` require `--site-id`, and no longer send the
+  fixed defaults `--cpu 2 --ram-mb 4096` (cloud), `--cpu 8 --ram-mb 32768` (GPU)
+  or `--os-distro ubuntu --os-type linux`: the shape and OS come from the plan and
+  image. `gpus create` no longer requires `--gpu-model`. The plan's billing SKU and
+  disk size are always sent, so creates no longer fail with 422.
+- With `--check-billing`, VM creates ask the SDK to check the plan's SKU and
+  estimated cost (it previously sent an eligibility check without a SKU).
+- `vms|gpus delete` reads the VM first (skip with `--no-check-state`) and sends the
+  public-IP choice the API requires for an auto-assigned IP; VM IDs must be 24
+  hexadecimal characters.
+- `volume-detach` requires `--confirm-unmounted` or `--force` before asking for
+  confirmation. `console create` accepts cloud VMs only (`--vm-type gpu` exits 2).
+- `backup-policy --frequency` accepts `daily` or `weekly` (not `hourly`);
+  `--window-minutes` is 5-180, `--retention-days` 1-365,
+  `--full-backup-interval-days` 1-30. `snapshots list`/`backups list` `--limit` is
+  at most 200 and `events --limit` at most 500. `resize-root-disk --new-size-gb` is
+  at most 10000. `resize-plan --cpu/--ram-mb` are optional with `--plan-id`.
+- `bandwidth --month` is optional (default: the current UTC month).
+- Restore commands check the target-mode rules before asking for confirmation.

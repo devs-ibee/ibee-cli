@@ -35,6 +35,7 @@ from ibee.errors import (
     OperationTimeoutError,
     OrganizationRestrictedError,
     OrganizationSuspendedError,
+    ResizeBlockedError,
     WorkspaceNotAllowedError,
 )
 from ibee.validation import IbeeValidationError
@@ -418,6 +419,9 @@ def api_error_lines(exc: ApiError) -> list[str]:
         return [f"Forbidden (403): {message}"]
     if status == 404:
         return ["Not found (404): the resource does not exist in this workspace."]
+    if isinstance(exc, ResizeBlockedError):
+        decision = getattr(exc, "decision", None) or "blocked"
+        return [f"Resize not possible (409, decision {decision}): {message}", *_decision_lines(exc)]
     if status == 409:
         return [f"Conflict (409): {message}"]
     if status == 413:
@@ -446,6 +450,40 @@ def api_error_lines(exc: ApiError) -> list[str]:
     return [f"API error {status}: {message}"]
 
 
+def _text_items(values: Any) -> list[str]:
+    items = values if isinstance(values, (list, tuple)) else [values]
+    out = []
+    for item in items:
+        if item in (None, "", [], {}):
+            continue
+        if isinstance(item, dict):
+            item = item.get("message") or item.get("reason") or item.get("code") or json.dumps(item, default=str)
+        out.append(str(item))
+    return out
+
+
+def _decision_lines(source: Any) -> list[str]:
+    """Reasons, warnings and migration steps of a resize precheck (object or mapping)."""
+    lines = []
+    for label, name in (("reason", "reasons"), ("warning", "warnings"), ("migration step", "migration_checklist")):
+        value = source.get(name) if isinstance(source, dict) else getattr(source, name, None)
+        for text in _text_items(value or []):
+            lines.append(f"  {label}: {text}")
+    return lines
+
+
+def validation_error_lines(exc: IbeeValidationError) -> list[str]:
+    """The message of a client-side validation error plus any structured details."""
+    lines = [str(exc)]
+    details = to_data(getattr(exc, "details", None))
+    if isinstance(details, dict):
+        decision = details.get("decision")
+        if decision:
+            lines.append(f"  decision: {decision}")
+        lines.extend(_decision_lines(details))
+    return lines
+
+
 def _is_transport_error(exc: BaseException) -> bool:
     return type(exc).__module__.startswith("httpx")
 
@@ -458,7 +496,8 @@ def handle_api_errors(fn: Callable) -> Callable:
         try:
             return fn(*args, **kwargs)
         except IbeeValidationError as exc:
-            _err(str(exc))
+            for line in validation_error_lines(exc):
+                _err(line)
             raise typer.Exit(code=EXIT_USAGE)
         except ApiError as exc:
             for line in api_error_lines(exc):

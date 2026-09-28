@@ -91,6 +91,10 @@ class FakeVms:
         self.calls.append(("create", kwargs))
         return SimpleNamespace(operation_id="op-1", vm_id="vm-1", status="accepted")
 
+    def get_cloud_vm(self, **kwargs):
+        self.calls.append(("get", kwargs))
+        return {"_id": kwargs["vm_id"], "name": "web", "status": "running"}
+
     def delete_cloud_vm(self, **kwargs):
         self.calls.append(("delete", kwargs))
         return SimpleNamespace(operation_id="op-del")
@@ -131,7 +135,8 @@ def fake_client(module, monkeypatch, **resources):
     return client
 
 
-CREATE_ARGS = ["vms", "create", "web", "--plan-id", "plan-1", "--template-id", "img-1"]
+CREATE_ARGS = ["vms", "create", "web", "--site-id", "site-1", "--plan-id", "plan-1", "--template-id", "img-1"]
+VM_ID = "65f0c0ffee0000000000abcd"
 
 
 # ---------------------------------------------------------------------------
@@ -565,19 +570,19 @@ def test_create_wait_json_prints_final_operation(monkeypatch):
 def test_global_yes_and_env_skip_confirmation(monkeypatch):
     fake = FakeVms()
     fake_client(vms, monkeypatch, cloud_vms=fake)
-    result = runner.invoke(app, [*BASE_ARGS, "--yes", "vms", "delete", "vm-1"])
+    result = runner.invoke(app, [*BASE_ARGS, "--yes", "vms", "delete", VM_ID])
     assert result.exit_code == 0, result.output
-    result = run(["vms", "delete", "vm-1"], env={"IBEE_ASSUME_YES": "true"})
+    result = run(["vms", "delete", VM_ID], env={"IBEE_ASSUME_YES": "true"})
     assert result.exit_code == 0, result.output
-    assert [name for name, _ in fake.calls] == ["delete", "delete"]
+    assert [name for name, _ in fake.calls] == ["get", "delete", "get", "delete"]
 
 
 def test_declined_confirmation_exits_1(monkeypatch):
     fake = FakeVms()
     fake_client(vms, monkeypatch, cloud_vms=fake)
-    result = run(["vms", "delete", "vm-1"], input="n\n")
+    result = run(["vms", "delete", VM_ID], input="n\n")
     assert result.exit_code == 1
-    assert fake.calls == []
+    assert [name for name, _ in fake.calls] == ["get"]
 
 
 # ---------------------------------------------------------------------------
@@ -601,49 +606,47 @@ class RequireBilling:
         return decision
 
 
-def test_check_billing_runs_preflight_before_create(monkeypatch):
+def test_check_billing_asks_the_sdk_to_preflight_the_plan_sku(monkeypatch):
     calls = []
     vms_fake = FakeVms()
     fake_client(vms, monkeypatch, cloud_vms=vms_fake, billing=RequireBilling(calls))
     result = runner.invoke(app, [*BASE_ARGS, "--check-billing", *CREATE_ARGS])
     assert result.exit_code == 0, result.output
-    assert calls == [("require", {"workspace_id": "973318", "resource_type": "vm"})]
+    # The SDK checks the plan's SKU and cost itself, so no SKU-less CLI preflight is sent.
+    assert calls == []
     assert [name for name, _ in vms_fake.calls] == ["create"]
+    assert vms_fake.calls[0][1]["preflight_billing"] is True
 
 
 def test_check_billing_denial_blocks_create(monkeypatch):
-    calls = []
-    vms_fake = FakeVms()
-    fake_client(
-        vms, monkeypatch, cloud_vms=vms_fake,
-        billing=RequireBilling(calls, allowed=False, reason="initial_topup_required"),
-    )
+    from ibee.errors import BillingDeniedError
+
+    class DenyingVms(FakeVms):
+        def create_cloud_vm(self, **kwargs):
+            self.calls.append(("create", kwargs))
+            assert kwargs["preflight_billing"] is True
+            raise BillingDeniedError(
+                decision={"allowed": False, "reason": "initial_topup_required"}, create_type="vm"
+            )
+
+    vms_fake = DenyingVms()
+    fake_client(vms, monkeypatch, cloud_vms=vms_fake)
     result = run(CREATE_ARGS, env={"IBEE_CHECK_BILLING": "1"})
     assert result.exit_code == 1
     output = plain(result)
     assert "Add at least ₹2,000 to your wallet before creating your first cloud VM." in output
     assert "Add credits in the IBEE portal" in output
-    assert vms_fake.calls == []
 
 
-def test_check_billing_falls_back_to_check_with_exact_true_gate(monkeypatch):
-    calls = []
-
-    class GpuVms:
-        def create_gpu_vm(self, **kwargs):
-            calls.append(("create", kwargs))
-            return SimpleNamespace(operation_id="op")
+def test_check_billing_falls_back_to_check_with_exact_true_gate():
+    from ibee.errors import BillingDeniedError
 
     billing_fake = FakeBilling({"allowed": "true", "reason": "ok"})
-    fake_client(gpus, monkeypatch, gpu_vms=GpuVms(), billing=billing_fake)
-    result = runner.invoke(
-        app,
-        [*BASE_ARGS, "--check-billing", "gpus", "create", "t", "--gpu-model", "A100",
-         "--plan-id", "p", "--template-id", "i"],
-    )
-    assert result.exit_code == 1
-    assert "Billing did not approve creating this GPU VM" in plain(result)
-    assert calls == []
+    settings = SimpleNamespace(check_billing=True)
+    client = SimpleNamespace(billing=billing_fake)
+    with pytest.raises(BillingDeniedError):
+        helpers.preflight_billing(settings, client, "973318", resource_type="gpu_vm")
+    assert [name for name, _ in billing_fake.calls] == ["check"]
 
 
 def test_check_billing_on_direct_gateway_create(monkeypatch, http):
