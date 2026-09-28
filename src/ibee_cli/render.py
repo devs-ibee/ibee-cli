@@ -30,6 +30,7 @@ from ibee.errors import (
     ApiKeyInactiveError,
     BillingDeniedError,
     BillingForbiddenError,
+    CdnPurgeFailedError,
     InsufficientScopeError,
     OperationFailedError,
     OperationTimeoutError,
@@ -389,6 +390,13 @@ def api_error_lines(exc: ApiError) -> list[str]:
     status = exc.status_code
     message = _body_text(exc)
     lowered = message.lower() + " " + str(getattr(exc, "body", "")).lower()
+    if isinstance(exc, CdnPurgeFailedError):
+        mode = getattr(exc, "mode", None) or "unknown"
+        return [
+            f"Cache purge failed (mode {mode}): {message}",
+            "  Nothing was purged. Prefix and tag purges may not be available for this distribution; "
+            "try --mode url or --mode all.",
+        ]
     if status == 401:
         return ["Unauthorized (401): the API token is invalid, revoked, or for the other environment."]
     if status == 402 or isinstance(exc, BillingDeniedError):

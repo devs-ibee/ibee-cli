@@ -95,6 +95,25 @@ Requires `ibee>=0.4.0,<0.5.0`.
   catalog) are printed as `Warning: ...` on stderr. Some API errors add a hint (for
   example how to empty a VPC before deleting it), and a Reserved IP attach to a VM
   outside a VPC points at `reserved-ips convert`.
+- Storage follows the portal (see "Storage rules the CLI applies" in the README):
+  - New `block-storage attach-vm VOLUME_ID VM_ID` and `block-storage detach-vm
+    VOLUME_ID [VM_ID]` (the portal's attach and detach: the volume's SKU is sent,
+    the cloud or GPU endpoint is picked from the volume, `--wait` polls every 2 s
+    for up to 120 s).
+  - `block-storage list --site-id --vm-type --limit --offset --all` (and `-o table`);
+    `create --vm-type --delete-on-termination/--keep-on-termination
+    --check-site/--no-check-site`; `operations --limit`; `--check-state/--no-check-state`
+    on `delete`, `resize` and `attach`.
+  - `buckets list --all`; `buckets create --retention-mode --retention-days
+    --retention-years --bucket-lock/--no-bucket-lock --preflight-billing`; `buckets
+    update --yes`; `buckets delete --skip-preflight --check-state/--no-check-state`.
+  - `buckets credentials delete` (permanent delete; `revoke` does the same);
+    `buckets credentials create --preflight-billing`; `credentials list -o table`.
+  - `cdn cache-policies` and `cdn metrics DISTRIBUTION_ID --range 24h|7d|30d` (not
+    yet part of the published API contract; behaviour may change); `cdn create
+    --check-origin/--no-check-origin --preflight-billing`; `cdn domains create
+    --preflight-billing`; `cdn domains verify --wait --timeout --poll-interval`;
+    `cdn purge --yes`; `cdn list -o table`.
 
 ### Changed
 
@@ -166,3 +185,38 @@ Requires `ibee>=0.4.0,<0.5.0`.
   `load-balancers list` no longer sends `limit=100&skip=0` unless you pass them.
 - Port and range checks use the portal's messages (exit 2) rather than the generic
   option-range errors.
+- `block-storage`, `buckets` and `cdn` commands now call the Python SDK instead of
+  sending requests directly, so the portal's rules are checked before anything is
+  sent (exit 2). Paths are URL-encoded (bucket names were not).
+- Block Storage: volume IDs must be 24 hexadecimal characters; `create` needs a
+  3-255 character lower-case name and 10-10000 GB (was 1-10000), accepts `--class`
+  `capacity|balanced|performance` only, and fills `--site-name` from the compute
+  sites. `create` prints the result as JSON and `Volume ID is STATE.` on stderr.
+  `delete` refuses an attached or busy volume before asking, and `--force` asks a
+  second time. `detach` needs `--confirm-unmounted`, `--force` or `--vm-state
+  stopped|suspended`, and `--node-name` and `--vm-type` default to the volume's
+  attachment. `resize` refuses shrinking and, for an attached volume, needs
+  `--vm-state stopped|suspended` or `--allow-online`.
+- `buckets create`: `--region` is optional on api.ibee.ai (`in-south-1`) and
+  api.ibee.co.in (`in-south-2`); names follow the portal rule (upper case is
+  rejected); `--default-retention` no longer needs `--bucket-lock` (Object Lock is
+  switched on automatically; `--no-bucket-lock` with a retention exits 2).
+- `buckets update --private` asks for confirmation (the bucket's CDN distribution and
+  public URL are removed). `buckets delete` refuses a bucket with Object Lock or with
+  objects before asking, and the prompt no longer says "and all of its contents"
+  (the API deletes empty buckets only). A 409 "not empty" and a 403 retention error
+  print a hint.
+- `buckets credentials create`: `--permission-type` accepts `admin_rw|admin_ro|
+  object_rw|object_ro` only, `--bucket-scope` defaults to the portal rule (`specific`
+  only for `object_*`), names are 1-100 characters, the request is never retried,
+  and the S3 endpoint is printed. `revoke` asks "Permanently delete ...": the API
+  deletes the credential rather than marking it revoked.
+- `cdn purge` requires `--mode` (it defaulted to `all`), `--mode all` asks for
+  confirmation, selectors accept comma-separated values, and a purge the CDN reports
+  as failed (`success: false`) exits 1 instead of 0.
+- `cdn create` refuses a private origin bucket; `--cache-policy`, `--origin-type` and
+  `generate-url --disposition` accept the portal's values only. `cdn website get`
+  prints "Website hosting is not configured (disabled)." (exit 0) when a distribution
+  has no website configuration. Custom domains are lower-cased; `cdn domains create`
+  prints the CNAME record to add; `cdn domains verify` explains a pending status.
+  `cdn delete` and `cdn domains delete` confirmations describe the side effects.
