@@ -1454,7 +1454,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
     ) -> None:
         """List backups across the workspace (the portal Backups page).
 
-        Not yet part of the published API contract; behaviour may change.
+        Needs the backend release that provides this operation: currently available on the development environment (--dev); production returns 404/405 until then. Not yet part of the published API contract; behaviour may change.
         """
         statuses = validate_backup_statuses(status) if status else None
         _settings, workspace, _client, resource = _resource(ctx, spec)
@@ -1523,7 +1523,9 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
     ) -> None:
         """Delete a completed backup (recovery point).
 
-        Not yet part of the published API contract; behaviour may change. Backups that a newer incremental depends on, or that are being restored, cannot be deleted.
+        Backups that a newer incremental depends on, or that are being restored, cannot be deleted.
+
+        Needs the backend release that provides this operation: currently available on the development environment (--dev); production returns 404/405 until then. Not yet part of the published API contract; behaviour may change.
         """
         confirm_destructive(get_settings(ctx), f"Delete backup '{run_id}'?", yes)
         _settings, workspace, _client, resource = _resource(ctx, spec)
@@ -1537,7 +1539,9 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
     def backups_restore(
         ctx: typer.Context,
         vm_id: str = typer.Argument(...),
-        recovery_point_id: str = typer.Argument(...),
+        recovery_point_id: str = typer.Argument(
+            ..., help="Backup run ID or recovery point ID (the recovery point the run reports is sent)"
+        ),
         target_mode: Optional[str] = typer.Option(None, "--target-mode", help="replace (default), new_vm, or volume_only"),
         target_vm_name: Optional[str] = typer.Option(
             None, "--target-vm-name", help="new_vm: name (default <vm>-backup-restored-YYYYMMDD)"
@@ -1585,7 +1589,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
     ) -> None:
         """Restore a backup by replacing a VM, creating a VM, or restoring a volume.
 
-        Only succeeded backups can be restored. For new_vm the plan must fit the captured root disk.
+        Only succeeded backups can be restored: the backup run is always read first (also with --no-check-state) and the recovery point ID it reports is sent. For new_vm the plan must fit the captured root disk.
         """
         _choice(target_mode, RESTORE_TARGET_MODES, "--target-mode")
         wait_config = resolve_wait(wait, timeout, poll_interval, default_timeout=RECOVERY_WAIT_TIMEOUT_SECONDS)

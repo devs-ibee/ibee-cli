@@ -10,14 +10,13 @@ from __future__ import annotations
 from typing import Any, List, Optional
 
 import typer
+from ibee.errors import IbeeError
 from ibee.validation import (
     IbeeValidationError,
     available_nat_gateway,
     build_nat_delete_body,
     check_nat_reserved_ip,
     check_nat_vpc,
-    check_virtual_ip_deletable,
-    check_vpc_deletable,
     record_get,
 )
 
@@ -268,34 +267,16 @@ def delete_vpc(
     if (nat_ip_action is not None or catalog is not None) and not delete_nat_gateway:
         raise IbeeValidationError(
             "--nat-ip-action and --nat-billing-catalog need --delete-nat-gateway.",
-            code="invalid_option",
+            code="invalid_nat_public_ip_action",
             field="nat_public_ip_action",
         )
-    prompt = f"Delete VPC '{vpc_id}'?"
-    if check_state:
-        vpc = client.vpcs.get_vpc(vpc_id, workspace_id=workspace)
-        try:
-            check_vpc_deletable(vpc, deleting_nat_gateway=delete_nat_gateway)
-        except IbeeValidationError as exc:
-            if exc.code == "vpc_has_nat_gateway":
-                raise IbeeValidationError(
-                    "Delete the NAT gateway first (or pass --delete-nat-gateway).",
-                    code=exc.code,
-                    field="vpc_id",
-                ) from None
-            raise
-        gateways = _items(record_get(vpc, "nat_gateways"))
-        for gateway in gateways if delete_nat_gateway else []:
-            build_nat_delete_body(public_ip_action=nat_ip_action, billing_catalog=catalog, gateway=gateway)
-        virtual_ips = client.vpcs.list_vpc_virtual_ips(vpc_id, workspace_id=workspace)
-        if virtual_ips:
-            raise IbeeValidationError(
-                "Delete all virtual IP reservations before deleting the VPC.",
-                code="vpc_has_virtual_ips",
-                field="vpc_id",
-            )
-        if delete_nat_gateway and gateways:
-            prompt = f"Delete NAT gateway(s) and then VPC '{vpc_id}'?"
+    # The SDK runs the dependency checks (attached nodes, NAT gateway, virtual IPs) before
+    # anything is deleted: with --check-state (strict: a 403 on a read is an error) and
+    # always with --delete-nat-gateway.
+    if delete_nat_gateway:
+        prompt = f"Delete NAT gateway(s) and then VPC '{vpc_id}'?"
+    else:
+        prompt = f"Delete VPC '{vpc_id}'?"
     confirm_destructive(settings, prompt, yes)
     try:
         with api_hints({409: VPC_DELETE_HINT}):
@@ -308,16 +289,21 @@ def delete_vpc(
                 nat_billing_catalog=catalog,
             )
     except IbeeValidationError as exc:
-        if exc.code != "nat_gateway_deleting":
+        if exc.code != "vpc_has_nat_gateway":
             raise
-        # The NAT gateway was deleted; only the wait for it to disappear ran out.
-        typer.secho(
-            f"NAT gateway deletion is still reconciling; retry 'ibee vpcs delete {vpc_id}' shortly "
-            f"(check with: ibee vpcs nat list {vpc_id}).",
-            fg=typer.colors.YELLOW,
-            err=True,
-        )
-        raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
+        raise IbeeValidationError(
+            "Delete the NAT gateway first (or pass --delete-nat-gateway).",
+            code=exc.code,
+            field="vpc_id",
+        ) from None
+    except IbeeError as exc:
+        if exc.code == "nat_gateway_deleting":
+            # Server state, not a usage error: the NAT gateway was deleted and only the wait
+            # for it to disappear ran out (exit 1 with the retry hint).
+            exc.cli_hint = (
+                f"Retry 'ibee vpcs delete {vpc_id}' shortly (check with: ibee vpcs nat list {vpc_id})."
+            )
+        raise
     _success(settings, f"VPC '{vpc_id}' deleted.")
 
 
@@ -937,21 +923,10 @@ def delete_virtual_ip(
     """Release a virtual IP reservation (detach its Reserved IP and forwarding rules first)."""
 
     settings, workspace, client = _session(ctx)
-    if check_state:
-        vip = client.vpcs.get_vpc_virtual_ip(vpc_id, virtual_ip_id, workspace_id=workspace)
-        check_virtual_ip_deletable(vip)
-        private_ip = record_get(vip, "private_ip")
-        for gateway in client.vpcs.list_nat_gateways(vpc_id, workspace_id=workspace):
-            gateway_id = record_get(gateway, "nat_gateway_id")
-            rules = client.vpcs.list_nat_port_forwarding_rules(vpc_id, gateway_id, workspace_id=workspace)
-            if any(record_get(rule, "internal_ip") == private_ip for rule in rules):
-                raise IbeeValidationError(
-                    "Delete port-forwarding rules that target this virtual IP first.",
-                    code="virtual_ip_has_rules",
-                    field="virtual_ip_id",
-                )
     confirm_destructive(settings, f"Delete virtual IP '{virtual_ip_id}'?", yes)
-    client.vpcs.delete_vpc_virtual_ip(vpc_id, virtual_ip_id, workspace_id=workspace, check_state=False)
+    # With --check-state the SDK refuses a virtual IP that still has a Reserved IP or is the
+    # target of a port-forwarding rule (strict: a 403 on a read is an error).
+    client.vpcs.delete_vpc_virtual_ip(vpc_id, virtual_ip_id, workspace_id=workspace, check_state=check_state)
     _success(settings, f"Virtual IP '{virtual_ip_id}' deleted.")
 
 
@@ -1033,7 +1008,7 @@ def detach_virtual_ip_reserved_ip(
     reserved_ip_id = record_get(vip, "public_ip_id")
     if not reserved_ip_id:
         raise IbeeValidationError(
-            "This virtual IP has no Reserved IP attached.", code="virtual_ip_no_reserved_ip", field="virtual_ip_id"
+            "This virtual IP has no Reserved IP attached.", code="reserved_ip_not_attached", field="virtual_ip_id"
         )
     confirm_destructive(
         settings, f"Detach Reserved IP '{reserved_ip_id}' from virtual IP '{virtual_ip_id}'?", yes

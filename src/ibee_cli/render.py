@@ -33,6 +33,7 @@ from ibee.errors import (
     CasConflictError,
     CdnPurgeFailedError,
     DeletionIncompleteError,
+    IbeeError,
     InsufficientScopeError,
     OperationFailedError,
     OperationTimeoutError,
@@ -592,6 +593,14 @@ def handle_api_errors(fn: Callable) -> Callable:
             raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
         except OperationFailedError as exc:
             _err(str(exc))
+            raise typer.Exit(code=EXIT_FAILURE)
+        except IbeeError as exc:
+            # Any other SDK error is a server-state condition (for example a NAT gateway
+            # deletion that is still reconciling), not a usage error: exit 1 with its hint.
+            _err(str(exc))
+            hint = getattr(exc, "cli_hint", None)
+            if hint:
+                _err(hint, typer.colors.YELLOW)
             raise typer.Exit(code=EXIT_FAILURE)
         except Exception as exc:  # httpx connection errors etc.
             if _is_transport_error(exc):

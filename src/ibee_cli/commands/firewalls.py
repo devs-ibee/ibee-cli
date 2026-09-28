@@ -75,7 +75,7 @@ def list_firewall_groups(
     page_limit = validate_limit(limit, maximum=100)
     page_offset = validate_offset(offset)
     if all_pages and (page_limit is not None or page_offset is not None):
-        raise IbeeValidationError("--all cannot be combined with --limit or --offset.", code="invalid_paging")
+        raise IbeeValidationError("--all cannot be combined with --limit or --offset.", code="invalid_all", field="all")
     paging = {key: value for key, value in (("limit", page_limit), ("offset", page_offset)) if value is not None}
     workspace = require_workspace(settings)
     client = get_client(settings)
