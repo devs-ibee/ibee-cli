@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import List, Optional
 
 import typer
+from ibee.validation import validate_limit, validate_offset
 
-from ..context import api_request, get_settings
-from ..helpers import compact_payload
+from ..context import api_request, get_client, get_settings, require_workspace
+from ..helpers import compact_payload, confirm_destructive
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="Firewall groups, rules, and VM attachments", no_args_is_help=True)
@@ -63,10 +64,31 @@ def _rule_payload(
 
 @app.command("list")
 @handle_api_errors
-def list_firewall_groups(ctx: typer.Context) -> None:
-    """List firewall groups in the workspace."""
+def list_firewall_groups(
+    ctx: typer.Context,
+    limit: Optional[int] = typer.Option(
+        None, "--limit", min=1, max=100, help="Return one page of at most N groups (1-100)"
+    ),
+    offset: Optional[int] = typer.Option(None, "--offset", min=0, help="Skip N groups (one page)"),
+) -> None:
+    """List firewall groups in the workspace.
 
-    _call(ctx, "GET", "networking/firewall-groups")
+    Without --limit/--offset every page is fetched; with either, one page is returned.
+    The paging options are not yet part of the published API contract; behaviour may
+    change.
+    """
+
+    settings = get_settings(ctx)
+    paging = {
+        "limit": validate_limit(limit, maximum=100),
+        "offset": validate_offset(offset),
+    }
+    workspace = require_workspace(settings)
+    client = get_client(settings)
+    result = client.firewalls.list_firewall_groups(
+        workspace_id=workspace, **{key: value for key, value in paging.items() if value is not None}
+    )
+    print_json(result)
 
 
 @app.command("create")
@@ -109,8 +131,7 @@ def delete_firewall_group(
 ) -> None:
     """Delete a firewall group."""
 
-    if not yes:
-        typer.confirm(f"Delete firewall group '{group_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete firewall group '{group_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -203,8 +224,7 @@ def delete_firewall_rule(
 ) -> None:
     """Delete a firewall rule."""
 
-    if not yes:
-        typer.confirm(f"Delete firewall rule '{rule_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete firewall rule '{rule_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -251,8 +271,7 @@ def detach_firewall_group(
 ) -> None:
     """Detach a firewall group from a VM."""
 
-    if not yes:
-        typer.confirm(f"Detach firewall group '{group_id}' from VM '{vm_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Detach firewall group '{group_id}' from VM '{vm_id}'?", yes)
     _call(
         ctx,
         "DELETE",

@@ -61,6 +61,7 @@ ibee compute images --vm-type gpu
 
 # Billing admission (SKU must come from an IBEE product catalog)
 ibee billing eligibility --sku-code PLAN_SKU
+ibee -o table billing eligibility --sku-code PLAN_SKU --require
 
 # Standalone Block Storage
 ibee block-storage list
@@ -152,7 +153,8 @@ ibee console get SESSION_ID
 ibee console close SESSION_ID --yes
 
 # Async operations — poll a create/delete/power action to completion
-ibee ops get OPERATION_ID --wait
+ibee ops get OPERATION_ID
+ibee ops wait OPERATION_ID --timeout 1800 --poll-interval 10
 
 # VPCs
 ibee vpcs sites
@@ -210,8 +212,9 @@ ibee load-balancers delete LOAD_BALANCER_ID --yes
 ```
 
 Create/delete/power, access, resize, and volume actions are asynchronous; add
-`--wait` to block until the operation finishes, or poll the returned operation
-later with `ibee ops get`.
+`--wait` to block until the operation finishes (default timeout 1200 s, polling
+every 5 s; change with `--timeout` and `--poll-interval`), or wait later with
+`ibee ops wait OPERATION_ID`.
 
 Snapshot and backup restores can replace a VM, create a new VM, or restore one
 volume. They require `--yes` (or an interactive confirmation). Run the command
@@ -228,24 +231,75 @@ Bucket and VM placement are automatic when `--site-id` is omitted. Use
 Billable creates send one product request. The public gateway performs the
 authoritative, fail-closed billing decision before routing; a valid denial is
 returned without calling the product service. `ibee billing eligibility`
-remains available as an optional point-in-time preview.
+remains available as an optional point-in-time preview, and the global
+`--check-billing` flag (or `IBEE_CHECK_BILLING=1`) runs the portal's preflight
+before a billable create: the create is sent only when billing answers
+`allowed: true`, otherwise the portal's explanation is printed (with top-up
+guidance when adding credits in the portal can resolve it) and the command
+exits 1. The preflight never reserves funds.
 
 For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
 [API reference](https://ibee.ai/docs/api-reference). This keeps advanced
 configurations available without a large set of fragile shell flags.
 
-Every command accepts `--json` for raw output:
+## Global options
+
+| Option | Environment variable | Meaning |
+| --- | --- | --- |
+| `--token` | `IBEE_TOKEN` (or `IBEE_API_TOKEN`) | API token |
+| `--workspace`, `-w` | `IBEE_WORKSPACE_ID` | Workspace ID (a positive number) |
+| `--dev` | `IBEE_ENV=dev` | Use the development environment |
+| `--base-url` | `IBEE_BASE_URL`, `IBEE_ENDPOINT` | Custom API endpoint |
+| `-o`, `--output` | `IBEE_OUTPUT` | `table`, `json`, `yaml` or `id` |
+| `--json` | | Same as `-o json` |
+| `--yes`, `-y` | `IBEE_ASSUME_YES=1` | Answer yes to every confirmation |
+| `--check-billing` | `IBEE_CHECK_BILLING=1` | Billing preflight before billable creates |
+
+Without `-o`, each command keeps its usual format (tables for most lists, JSON
+for single resources and operation results). `-o yaml` prints YAML and `-o id`
+prints one identifier per line (for an accepted operation, its `operation_id`):
 
 ```bash
 ibee --json buckets list
+ibee -o id vms list
+ibee -o yaml vms get VM_ID
 ```
+
+`ibee vms list`, `ibee gpus list` and `ibee firewalls list` fetch every page.
+Pass `--limit`/`--offset` for a single page; the VM lists also take `--search`,
+`--sort-by created_at|name|status|os_type` and `--sort-direction asc|desc`.
+
+### Retries and idempotency keys
+
+Reads, and writes that carry an idempotency key on a route that honours it (VM
+create/delete/actions and Block Storage volume writes), are retried up to twice
+on HTTP 429, 502, 503 and 504 and on network errors, honouring `Retry-After` (at
+most 30 s). Other writes are never retried automatically, and 408, 409 and 500
+are never retried. The keyed commands accept `--idempotency-key KEY` (1-128
+printable ASCII characters); when a keyed write fails with a retryable error, or
+`--wait` times out, the CLI prints `Retry safely with: --idempotency-key KEY` so
+you can repeat the command without creating the resource twice.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Success (including a billing denial reported by `billing eligibility` without `--require`) |
+| 1 | API error, network error, failed/cancelled/timed-out operation, declined confirmation, or billing denial |
+| 2 | Usage or client-side validation error (missing token/workspace, invalid workspace ID, token/endpoint mismatch, invalid idempotency key, invalid `IBEE_ENV`, conflicting `--json`/`-o`) |
+| 3 | `--wait` reached `--timeout` while the operation was still running; resume with `ibee ops wait OPERATION_ID` |
 
 ## Environments
 
 The CLI targets production at `https://api.ibee.ai/v1` by default. Use `--dev`
 (or `IBEE_ENV=dev`) for `https://api.ibee.co.in/v1`, or `--base-url` for a
-custom endpoint. Match production tokens to `.ai` and development tokens to
-`.co.in`; resource IDs are environment-specific:
+custom endpoint. The endpoint is chosen in this order: `--base-url`,
+`IBEE_BASE_URL`, `IBEE_ENDPOINT`, `--dev`, `IBEE_ENV`. `IBEE_ENV` accepts `dev`,
+`development`, `prod` or `production` (any other value exits 2). Endpoints must
+use `https://` (`http://` only for localhost) without credentials, query or
+fragment. Production tokens (`ibee_prod_key_...`) only work with `.ai` and
+development tokens (`ibee_dev_key_...`) only with `.co.in`; a mismatch exits 2
+before any request. Resource IDs are environment-specific:
 
 ```bash
 ibee --dev buckets list

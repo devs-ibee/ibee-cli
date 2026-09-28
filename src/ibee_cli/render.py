@@ -1,35 +1,289 @@
-"""Output rendering: rich tables by default, raw JSON with --json."""
+"""Output rendering and CLI error handling.
+
+Output modes (global ``-o/--output``, env ``IBEE_OUTPUT``; ``--json`` = ``-o json``):
+
+* ``table``: rich tables (the default for list commands that render tables);
+* ``json``: indented JSON;
+* ``yaml``: block-style YAML (PyYAML when installed, otherwise a built-in emitter);
+* ``id``: one identifier per line.
+
+Without ``-o`` each command keeps its 0.3.0 default. Errors always go to stderr.
+
+Exit codes: 0 success; 1 API error, network error, failed operation, declined
+confirmation or billing denial; 2 usage or client-side validation error; 3 ``--wait``
+reached its timeout while the operation was still running.
+"""
 
 from __future__ import annotations
 
 import functools
 import json
-from typing import Any, Callable, Iterable, Sequence
+import re
+from typing import Any, Callable, Iterable, Optional, Sequence
 
+import click
 import typer
+import typer.main
+from ibee.billing import TOPUP_GUIDANCE, billing_block_message, is_billing_topup_allowed
 from ibee.core.api_error import ApiError
+from ibee.errors import (
+    ApiKeyInactiveError,
+    BillingDeniedError,
+    BillingForbiddenError,
+    InsufficientScopeError,
+    OperationFailedError,
+    OperationTimeoutError,
+    OrganizationRestrictedError,
+    OrganizationSuspendedError,
+    WorkspaceNotAllowedError,
+)
+from ibee.validation import IbeeValidationError
 from rich.console import Console
 from rich.table import Table
 
-from .context import CliApiError
-
 console = Console()
+
+EXIT_OK = 0
+EXIT_FAILURE = 1
+EXIT_USAGE = 2
+EXIT_WAIT_TIMEOUT = 3
+
+#: Identifier fields tried, in order, by ``-o id`` when a command names none.
+ID_FIELDS = (
+    "_id",
+    "id",
+    "vm_id",
+    "volume_id",
+    "store_id",
+    "secret_id",
+    "identity_id",
+    "distribution_id",
+    "vpc_id",
+    "subnet_id",
+    "nat_gateway_id",
+    "reserved_ip_id",
+    "firewall_group_id",
+    "group_id",
+    "rule_id",
+    "load_balancer_id",
+    "session_id",
+    "access_key_id",
+    "name",
+    "operation_id",
+)
+#: Wrapper keys that hold the items of a collection response.
+COLLECTION_KEYS = (
+    "items",
+    "vms",
+    "stores",
+    "secrets",
+    "buckets",
+    "volumes",
+    "distributions",
+    "vpcs",
+    "subnets",
+    "reserved_ips",
+    "load_balancers",
+    "groups",
+    "rules",
+    "credentials",
+    "identities",
+    "scopes",
+    "snapshots",
+    "runs",
+    "events",
+    "plans",
+    "images",
+    "sites",
+)
+
+
+# ---------------------------------------------------------------------------
+# Data conversion
+# ---------------------------------------------------------------------------
 
 
 def _json_value(payload: Any) -> Any:
     if hasattr(payload, "model_dump"):
         return _json_value(payload.model_dump())
-    if hasattr(payload, "dict"):
+    if hasattr(payload, "dict") and not isinstance(payload, dict):
         return _json_value(payload.dict())
     if isinstance(payload, dict):
         return {key: _json_value(value) for key, value in payload.items()}
     if isinstance(payload, (list, tuple)):
         return [_json_value(value) for value in payload]
+    if hasattr(payload, "__dict__") and type(payload).__module__ == "types":
+        # SimpleNamespace and similar plain objects.
+        return {key: _json_value(value) for key, value in vars(payload).items()}
     return payload
 
 
-def print_json(payload: Any) -> None:
-    console.print_json(json.dumps(_json_value(payload), default=str))
+def to_data(payload: Any) -> Any:
+    """Plain JSON-compatible data for a model, mapping or list."""
+    return _json_value(payload)
+
+
+def _current_context() -> Any:
+    getters = (getattr(typer.main, "get_current_context", None), click.get_current_context)
+    for getter in getters:
+        if getter is None:
+            continue
+        ctx = getter(silent=True)
+        if ctx is not None:
+            return ctx
+    return None
+
+
+def _current_output() -> Optional[str]:
+    ctx = _current_context()
+    if ctx is None:
+        return None
+    settings = ctx.find_root().obj
+    return getattr(settings, "output", None)
+
+
+# ---------------------------------------------------------------------------
+# YAML
+# ---------------------------------------------------------------------------
+
+_PLAIN_SCALAR = re.compile(r"^[A-Za-z0-9_./@:+-][A-Za-z0-9_ ./@:+-]*$")
+_YAML_RESERVED = frozenset(
+    {"", "~", "null", "true", "false", "yes", "no", "on", "off", "y", "n"}
+)
+
+
+def _yaml_scalar(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return json.dumps(value)
+    text = str(value)
+    looks_numeric = re.fullmatch(r"[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?", text) is not None
+    if (
+        _PLAIN_SCALAR.fullmatch(text)
+        and text.lower() not in _YAML_RESERVED
+        and not looks_numeric
+        and not text.endswith(":")
+        and ": " not in text
+        and not text.startswith(("-", ":"))
+    ):
+        return text
+    return json.dumps(text, ensure_ascii=False)
+
+
+def _yaml_lines(value: Any, indent: int) -> list[str]:
+    pad = " " * indent
+    if isinstance(value, dict):
+        if not value:
+            return [pad + "{}"]
+        lines = []
+        for key, item in value.items():
+            key_text = _yaml_scalar(str(key))
+            if isinstance(item, (dict, list)) and item:
+                lines.append(f"{pad}{key_text}:")
+                lines.extend(_yaml_lines(item, indent + 2))
+            else:
+                lines.append(f"{pad}{key_text}: {_yaml_inline(item)}")
+        return lines
+    if isinstance(value, list):
+        if not value:
+            return [pad + "[]"]
+        lines = []
+        for item in value:
+            if isinstance(item, (dict, list)) and item:
+                nested = _yaml_lines(item, indent + 2)
+                lines.append(f"{pad}- {nested[0].lstrip()}")
+                lines.extend(nested[1:])
+            else:
+                lines.append(f"{pad}- {_yaml_inline(item)}")
+        return lines
+    return [pad + _yaml_scalar(value)]
+
+
+def _yaml_inline(value: Any) -> str:
+    if isinstance(value, dict):
+        return "{}"
+    if isinstance(value, list):
+        return "[]"
+    return _yaml_scalar(value)
+
+
+def to_yaml(payload: Any) -> str:
+    """Block-style YAML for ``payload`` (PyYAML when installed)."""
+    data = json.loads(json.dumps(to_data(payload), default=str))
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except ImportError:
+        return "\n".join(_yaml_lines(data, 0)) + "\n"
+    return yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+
+
+# ---------------------------------------------------------------------------
+# Identifiers
+# ---------------------------------------------------------------------------
+
+
+def _items(data: Any) -> list[Any]:
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in COLLECTION_KEYS:
+            if isinstance(data.get(key), list):
+                return data[key]
+        return [data]
+    return [] if data is None else [data]
+
+
+def _identifier(item: Any, id_field: Optional[str]) -> Optional[str]:
+    if not isinstance(item, dict):
+        return None if item is None else str(item)
+    fields = (id_field,) if id_field else ID_FIELDS
+    for name in fields:
+        value = item.get(name)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def identifiers(payload: Any, id_field: Optional[str] = None) -> list[str]:
+    """Identifiers for ``-o id``: one per item of a collection, or one for an object."""
+    ids = []
+    for item in _items(to_data(payload)):
+        value = _identifier(item, id_field)
+        if value is not None:
+            ids.append(value)
+    return ids
+
+
+# ---------------------------------------------------------------------------
+# Printing
+# ---------------------------------------------------------------------------
+
+
+def _print_json_text(payload: Any) -> None:
+    console.print_json(json.dumps(to_data(payload), default=str))
+
+
+def print_structured(payload: Any, mode: str, *, id_field: Optional[str] = None) -> None:
+    """Print ``payload`` as ``json``, ``yaml`` or ``id``."""
+    if mode == "yaml":
+        typer.echo(to_yaml(payload), nl=False)
+    elif mode == "id":
+        for value in identifiers(payload, id_field):
+            typer.echo(value)
+    else:
+        _print_json_text(payload)
+
+
+def print_json(payload: Any, *, id_field: Optional[str] = None) -> None:
+    """Print a command result whose 0.3.0 default is JSON.
+
+    ``-o yaml`` and ``-o id`` are honoured; ``-o table`` and no option print JSON.
+    """
+    mode = _current_output()
+    print_structured(payload, mode if mode in ("yaml", "id") else "json", id_field=id_field)
 
 
 def print_table(title: str, columns: Sequence[str], rows: Iterable[Sequence[Any]]) -> None:
@@ -46,43 +300,183 @@ def print_table(title: str, columns: Sequence[str], rows: Iterable[Sequence[Any]
     console.print(table)
 
 
+def cell(item: Any, column: str) -> Any:
+    """Read ``column`` from a model or mapping (enum values unwrapped)."""
+    if isinstance(item, dict):
+        value = item.get(column)
+    else:
+        value = getattr(item, column, None)
+    return getattr(value, "value", value)
+
+
+def emit(
+    result: Any,
+    *,
+    settings: Any = None,
+    default: str = "table",
+    columns: Optional[Sequence[str]] = None,
+    title: Optional[str] = None,
+    id_field: Optional[str] = None,
+    rows: Optional[Iterable[Sequence[Any]]] = None,
+    headers: Optional[Sequence[str]] = None,
+) -> None:
+    """Render ``result`` in the selected output mode.
+
+    ``default`` is the command's 0.3.0 behaviour when no ``-o`` is given. For table
+    output, pass ``columns`` (field names read from each item) or explicit
+    ``headers`` and ``rows``; without either, table mode prints JSON.
+    """
+    mode = getattr(settings, "output", None) if settings is not None else _current_output()
+    mode = mode or default
+    if mode != "table" or (columns is None and rows is None):
+        print_structured(result, "json" if mode == "table" else mode, id_field=id_field)
+        return
+    if rows is None:
+        items = result if isinstance(result, (list, tuple)) else _items(result)
+        rows = [[cell(item, column) for column in columns or ()] for item in items]
+    print_table(title or "", headers or columns or (), rows)
+
+
+# ---------------------------------------------------------------------------
+# Errors
+# ---------------------------------------------------------------------------
+
+
+def _err(message: str, color: str = typer.colors.RED) -> None:
+    typer.secho(message, fg=color, err=True)
+
+
+def retry_hint(idempotency_key: Optional[str]) -> None:
+    """Tell the user how to repeat a keyed write without creating it twice."""
+    if idempotency_key:
+        _err(f"Retry safely with: --idempotency-key {idempotency_key}", typer.colors.YELLOW)
+
+
+def _body_text(exc: ApiError) -> str:
+    message = getattr(exc, "message", None)
+    if message:
+        return str(message)
+    return repr(getattr(exc, "body", None))
+
+
+def _billing_message(exc: ApiError) -> list[str]:
+    if isinstance(exc, BillingDeniedError):
+        lines = [f"Payment required (402): {exc.message}"]
+        topup = bool(getattr(exc, "topup_allowed", False))
+    else:
+        reason = getattr(exc, "reason", None) or ""
+        lines = [f"Payment required (402): {billing_block_message(reason)}"]
+        topup = is_billing_topup_allowed(reason)
+    details = []
+    if getattr(exc, "reason", None):
+        details.append(f"reason={exc.reason}")
+    sku = getattr(exc, "sku_code", None) or getattr(exc, "billing_sku_code", None)
+    if sku:
+        details.append(f"sku={sku}")
+    if getattr(exc, "admission_context_id", None):
+        details.append(f"admission_context_id={exc.admission_context_id}")
+    if details:
+        lines.append("  " + " ".join(details))
+    if topup:
+        lines.append(TOPUP_GUIDANCE)
+    return lines
+
+
+def api_error_lines(exc: ApiError) -> list[str]:
+    """Human-readable lines describing an API error."""
+    status = exc.status_code
+    message = _body_text(exc)
+    lowered = message.lower() + " " + str(getattr(exc, "body", "")).lower()
+    if status == 401:
+        return ["Unauthorized (401): the API token is invalid, revoked, or for the other environment."]
+    if status == 402 or isinstance(exc, BillingDeniedError):
+        return _billing_message(exc)
+    if status == 403:
+        if isinstance(exc, InsufficientScopeError) or getattr(exc, "code", None) == "insufficient_scope":
+            scope = getattr(exc, "required_scope", None) or "required"
+            return [f"Forbidden (403): the token is missing scope {scope}."]
+        if (
+            isinstance(exc, WorkspaceNotAllowedError)
+            or "does not belong to workspace" in lowered
+            or "does not match api token context" in lowered
+        ):
+            return [
+                "Forbidden (403): the resource belongs to a different workspace. "
+                "Verify --workspace or IBEE_WORKSPACE_ID matches the workspace used "
+                f"when the resource was created. ({message})"
+            ]
+        if isinstance(exc, ApiKeyInactiveError):
+            return [f"Forbidden (403): the API token is not active ({exc.code})."]
+        if isinstance(exc, OrganizationRestrictedError):
+            return [f"Forbidden (403): the organization is restricted: {message}"]
+        if isinstance(exc, BillingForbiddenError):
+            reason = getattr(exc, "reason", None) or ""
+            lines = [f"Forbidden (403): {billing_block_message(reason)}"]
+            if is_billing_topup_allowed(reason):
+                lines.append(TOPUP_GUIDANCE)
+            return lines
+        return [f"Forbidden (403): {message}"]
+    if status == 404:
+        return ["Not found (404): the resource does not exist in this workspace."]
+    if status == 409:
+        return [f"Conflict (409): {message}"]
+    if status == 413:
+        return ["Request too large (413): the request body is over the 64 KiB limit."]
+    if status == 422:
+        return [f"Validation failed (422): {message}"]
+    if status == 423 or isinstance(exc, OrganizationSuspendedError):
+        return [
+            "Organization suspended (423): billing has suspended this organization, "
+            f"so this change is blocked. {message}"
+        ]
+    if status == 429:
+        retry_after = getattr(exc, "retry_after", None)
+        after = f"; retry after {retry_after:g} s" if retry_after is not None else ""
+        return [f"Rate limited (429){after}. {message}"]
+    if status is not None and status >= 500:
+        lines = [f"Service error ({status}, {exc.code}): {message}"]
+        refs = []
+        if getattr(exc, "request_id", None):
+            refs.append(f"request_id={exc.request_id}")
+        if getattr(exc, "admission_context_id", None):
+            refs.append(f"admission_context_id={exc.admission_context_id}")
+        if refs:
+            lines.append("  " + " ".join(refs))
+        return lines
+    return [f"API error {status}: {message}"]
+
+
+def _is_transport_error(exc: BaseException) -> bool:
+    return type(exc).__module__.startswith("httpx")
+
+
 def handle_api_errors(fn: Callable) -> Callable:
-    """Convert ApiError / connection failures into clean CLI errors."""
+    """Convert SDK, API and network errors into clean CLI errors and exit codes."""
 
     @functools.wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
-        except (ApiError, CliApiError) as exc:
-            if exc.status_code == 401:
-                msg = "Unauthorized (401): the API token is invalid or revoked."
-            elif exc.status_code == 402:
-                msg = (
-                    "Payment required (402): billing denied this resource "
-                    f"creation. body={exc.body!r}"
-                )
-            elif exc.status_code == 403:
-                if "does not belong to workspace" in str(exc.body).lower():
-                    msg = (
-                        "Forbidden (403): the resource belongs to a different workspace. "
-                        "Verify --workspace or IBEE_WORKSPACE_ID matches the workspace used "
-                        f"when the resource was created. body={exc.body!r}"
-                    )
-                else:
-                    msg = f"Forbidden (403): the token is missing a required scope. body={exc.body!r}"
-            elif exc.status_code == 404:
-                msg = (
-                    "Not found (404): this API route is not enabled on the gateway yet "
-                    "(compute routes are rolling out) or the resource does not exist."
-                )
-            else:
-                msg = f"API error {exc.status_code}: {exc.body!r}"
-            typer.secho(msg, fg=typer.colors.RED, err=True)
-            raise typer.Exit(code=1)
+        except IbeeValidationError as exc:
+            _err(str(exc))
+            raise typer.Exit(code=EXIT_USAGE)
+        except ApiError as exc:
+            for line in api_error_lines(exc):
+                _err(line)
+            if exc.status_code in (429, 502, 503, 504) or (exc.status_code or 0) >= 500:
+                retry_hint(getattr(exc, "idempotency_key", None))
+            raise typer.Exit(code=EXIT_FAILURE)
+        except OperationTimeoutError as exc:
+            _err(f"{exc}; resume with: ibee ops wait {exc.operation_id}", typer.colors.YELLOW)
+            raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
+        except OperationFailedError as exc:
+            _err(str(exc))
+            raise typer.Exit(code=EXIT_FAILURE)
         except Exception as exc:  # httpx connection errors etc.
-            if type(exc).__module__.startswith("httpx"):
-                typer.secho(f"Connection error: {exc}", fg=typer.colors.RED, err=True)
-                raise typer.Exit(code=1)
+            if _is_transport_error(exc):
+                _err(f"Connection error: {exc}")
+                retry_hint(getattr(exc, "idempotency_key", None))
+                raise typer.Exit(code=EXIT_FAILURE)
             raise
 
     return wrapper

@@ -7,7 +7,7 @@ from typing import List, Optional
 import typer
 
 from ..context import api_request, get_settings
-from ..helpers import compact_payload
+from ..helpers import compact_payload, confirm_destructive, preflight_create
 from ..render import handle_api_errors, print_json
 
 app = typer.Typer(help="VPC networking, subnets, nodes, and NAT", no_args_is_help=True)
@@ -144,8 +144,7 @@ def delete_vpc(
 ) -> None:
     """Delete an empty VPC."""
 
-    if not yes:
-        typer.confirm(f"Delete VPC '{vpc_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete VPC '{vpc_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -238,8 +237,7 @@ def delete_subnet(
 ) -> None:
     """Delete an unused subnet."""
 
-    if not yes:
-        typer.confirm(f"Delete subnet '{subnet_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete subnet '{subnet_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -298,8 +296,7 @@ def detach_node(
 ) -> None:
     """Detach a VM from a VPC."""
 
-    if not yes:
-        typer.confirm(f"Detach VM '{vm_id}' from VPC '{vpc_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Detach VM '{vm_id}' from VPC '{vpc_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -330,6 +327,8 @@ def create_nat_gateway(
 ) -> None:
     """Create a NAT gateway in a VPC."""
 
+    preflight_create(get_settings(ctx), "resource")
+
     _call(
         ctx,
         "POST",
@@ -352,8 +351,7 @@ def delete_nat_gateway(
 ) -> None:
     """Delete a NAT gateway."""
 
-    if not yes:
-        typer.confirm(f"Delete NAT gateway '{nat_gateway_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete NAT gateway '{nat_gateway_id}'?", yes)
     _call(
         ctx,
         "DELETE",
@@ -464,8 +462,7 @@ def delete_forwarding_rule(
 ) -> None:
     """Delete a NAT port-forwarding rule."""
 
-    if not yes:
-        typer.confirm(f"Delete port-forwarding rule '{rule_id}'?", abort=True)
+    confirm_destructive(get_settings(ctx), f"Delete port-forwarding rule '{rule_id}'?", yes)
     _call(
         ctx,
         "DELETE",
