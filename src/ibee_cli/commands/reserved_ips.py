@@ -1,34 +1,36 @@
-"""Reserved public IP commands."""
+"""Reserved public IP commands.
+
+The Python SDK applies the portal's rules: label and reverse-DNS formats, no release
+while attached, attach versus move, no detach of a converted address that is still
+the VM's active IP, and the RESERVED-IP billing preflight for conversions.
+"""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 import typer
+from ibee.validation import check_reserved_ip_releasable
 
-from ..context import api_request, get_settings
-from ..helpers import compact_payload, confirm_destructive, preflight_create
-from ..render import handle_api_errors, print_json
+from ..context import get_client, get_settings, require_workspace
+from ..helpers import check_state_option, confirm_destructive, load_json_input
+from ..render import emit, handle_api_errors, print_json
+
+UNCONTRACTED = "Not yet part of the published API contract; behaviour may change."
+ID_FIELD = "public_ip_id"
+COLUMNS = ("public_ip_id", "address", "site_id", "label", "status", "attached_resource_type", "attached_resource_id")
+CATALOG_HELP = (
+    "RESERVED-IP billing catalog object (sku_id and sku_code required). Copy it from your IBEE "
+    f"pricing; there is no public pricing route yet. {UNCONTRACTED}"
+)
 
 app = typer.Typer(help="Reserve and attach public IP addresses", no_args_is_help=True)
 
 
-def _call(
-    ctx: typer.Context,
-    method: str,
-    path: str,
-    *,
-    params: dict | None = None,
-    payload: dict | None = None,
-    success: str | None = None,
-) -> None:
-    result = api_request(
-        get_settings(ctx), method, path, params=params, json_body=payload
-    )
-    if result is not None:
-        print_json(result)
-    elif success:
-        typer.secho(success, fg=typer.colors.GREEN)
+def _session(ctx: typer.Context) -> tuple[Any, str, Any]:
+    settings = get_settings(ctx)
+    workspace = require_workspace(settings)
+    return settings, workspace, get_client(settings)
 
 
 @app.command("list")
@@ -39,26 +41,76 @@ def list_reserved_ips(
 ) -> None:
     """List Reserved IPs in the workspace."""
 
-    _call(ctx, "GET", "networking/reserved-ips", params={"site_id": site_id})
+    settings, workspace, client = _session(ctx)
+    items = client.reserved_ips.list_reserved_ips(workspace_id=workspace, site_id=site_id)
+    emit(items, settings=settings, default="json", columns=COLUMNS, title="Reserved IPs", id_field=ID_FIELD)
 
 
 @app.command("reserve")
 @handle_api_errors
 def reserve_ip(
     ctx: typer.Context,
-    site_id: str = typer.Option(..., "--site-id", help="Placement site ID"),
-    label: str = typer.Option("", "--label"),
+    site_id: str = typer.Option(..., "--site-id", help="Location of the Reserved IP"),
+    label: Optional[str] = typer.Option(None, "--label", help="Name, up to 120 characters"),
+    billing_catalog: Optional[str] = typer.Option(
+        None, "--billing-catalog", "--billing-catalog-json", metavar="JSON", help=CATALOG_HELP
+    ),
+    billing_catalog_file: Optional[str] = typer.Option(
+        None, "--billing-catalog-file", metavar="PATH", help="Read --billing-catalog from a JSON file"
+    ),
+    check_billing: bool = typer.Option(
+        False, "--check-billing", help="Check RESERVED-IP billing eligibility first (same as the global option)"
+    ),
 ) -> None:
-    """Reserve a public IP address."""
+    """Reserve a new public IP address (billed while reserved)."""
 
-    preflight_create(get_settings(ctx), "reserved_ip")
-
-    _call(
-        ctx,
-        "POST",
-        "networking/reserved-ips",
-        payload={"site_id": site_id, "label": label},
+    settings, workspace, client = _session(ctx)
+    catalog = load_json_input(billing_catalog, billing_catalog_file, "billing-catalog")
+    reserved = client.reserved_ips.reserve_ip(
+        workspace_id=workspace,
+        site_id=site_id,
+        label=label,
+        billing_catalog=catalog,
+        check_billing=check_billing or settings.check_billing,
     )
+    print_json(reserved, id_field=ID_FIELD)
+
+
+@app.command("convert")
+@handle_api_errors
+def convert_vm_public_ip(
+    ctx: typer.Context,
+    vm_id: str = typer.Option(..., "--vm-id", help="VM whose current public IPv4 becomes a Reserved IP"),
+    site_id: str = typer.Option(..., "--site-id", help="The VM's site"),
+    label: Optional[str] = typer.Option(None, "--label", help="Name, up to 120 characters"),
+    billing_catalog: Optional[str] = typer.Option(
+        None, "--billing-catalog", "--billing-catalog-json", metavar="JSON", help=CATALOG_HELP
+    ),
+    billing_catalog_file: Optional[str] = typer.Option(
+        None, "--billing-catalog-file", metavar="PATH", help="Read --billing-catalog from a JSON file"
+    ),
+    billing_check: bool = typer.Option(
+        True,
+        "--billing-check/--no-billing-check",
+        help="Check RESERVED-IP billing eligibility first (default: on; needs the billing.read scope)",
+    ),
+) -> None:
+    """Keep a VM's current public IPv4 as a Reserved IP (VMs outside a VPC).
+
+    Not yet part of the published API contract; behaviour may change.
+    """
+
+    _settings, workspace, client = _session(ctx)
+    catalog = load_json_input(billing_catalog, billing_catalog_file, "billing-catalog")
+    reserved = client.reserved_ips.convert_vm_public_ip_to_reserved_ip(
+        workspace_id=workspace,
+        vm_id=vm_id,
+        site_id=site_id,
+        label=label,
+        billing_catalog=catalog,
+        billing_check=billing_check,
+    )
+    print_json(reserved, id_field=ID_FIELD)
 
 
 @app.command("get")
@@ -69,7 +121,8 @@ def get_reserved_ip(
 ) -> None:
     """Show a Reserved IP."""
 
-    _call(ctx, "GET", f"networking/reserved-ips/{reserved_ip_id}")
+    _settings, workspace, client = _session(ctx)
+    print_json(client.reserved_ips.get_reserved_ip(reserved_ip_id, workspace_id=workspace), id_field=ID_FIELD)
 
 
 @app.command("update")
@@ -77,20 +130,18 @@ def get_reserved_ip(
 def update_reserved_ip(
     ctx: typer.Context,
     reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID"),
-    label: Optional[str] = typer.Option(None, "--label"),
-    reverse_dns: Optional[str] = typer.Option(None, "--reverse-dns"),
+    label: Optional[str] = typer.Option(None, "--label", help="Name, up to 120 characters"),
+    reverse_dns: Optional[str] = typer.Option(
+        None, "--reverse-dns", help="Fully qualified hostname (up to 253 characters); an empty string clears it"
+    ),
 ) -> None:
-    """Update a Reserved IP label or reverse DNS."""
+    """Update a Reserved IP label or reverse DNS (at least one)."""
 
-    payload = compact_payload(label=label, reverse_dns=reverse_dns)
-    if not payload:
-        raise typer.BadParameter("Provide --label and/or --reverse-dns.")
-    _call(
-        ctx,
-        "PATCH",
-        f"networking/reserved-ips/{reserved_ip_id}",
-        payload=payload,
+    _settings, workspace, client = _session(ctx)
+    reserved = client.reserved_ips.update_reserved_ip(
+        reserved_ip_id, workspace_id=workspace, label=label, reverse_dns=reverse_dns
     )
+    print_json(reserved, id_field=ID_FIELD)
 
 
 @app.command("attach")
@@ -98,18 +149,66 @@ def update_reserved_ip(
 def attach_reserved_ip(
     ctx: typer.Context,
     reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID"),
-    vm_id: str = typer.Argument(..., help="Cloud or GPU VM ID"),
-    vpc_id: Optional[str] = typer.Option(None, "--vpc-id"),
-    subnet_id: Optional[str] = typer.Option(None, "--subnet-id"),
+    vm_id: str = typer.Argument(..., help="Cloud or GPU VM ID (attached to a VPC, same site)"),
+    vpc_id: Optional[str] = typer.Option(None, "--vpc-id", help="Needed when the VM is in several VPCs"),
+    subnet_id: Optional[str] = typer.Option(None, "--subnet-id", help="Needed when the VM is in several VPCs"),
+    detach_from_service: bool = typer.Option(
+        False,
+        "--detach-from-service",
+        help="If the IP is on a NAT gateway or virtual IP, detach it from there first",
+    ),
+    check_state: bool = check_state_option(),
 ) -> None:
-    """Attach a Reserved IP to a VM."""
+    """Attach a Reserved IP to a VPC-attached VM (use 'move' if it is on another VM)."""
 
-    _call(
-        ctx,
-        "POST",
-        f"networking/reserved-ips/{reserved_ip_id}/attach",
-        payload=compact_payload(vm_id=vm_id, vpc_id=vpc_id, subnet_id=subnet_id),
+    _settings, workspace, client = _session(ctx)
+    reserved = client.reserved_ips.attach_reserved_ip(
+        reserved_ip_id,
+        workspace_id=workspace,
+        vm_id=vm_id,
+        vpc_id=vpc_id,
+        subnet_id=subnet_id,
+        detach_from_service=detach_from_service,
+        check_state=check_state,
     )
+    print_json(reserved, id_field=ID_FIELD)
+
+
+def _attach_virtual_ip(ctx: typer.Context, reserved_ip_id: str, virtual_ip_id: str, check_state: bool) -> None:
+    _settings, workspace, client = _session(ctx)
+    reserved = client.reserved_ips.attach_reserved_ip_to_virtual_ip(
+        reserved_ip_id, workspace_id=workspace, virtual_ip_id=virtual_ip_id, check_state=check_state
+    )
+    print_json(reserved, id_field=ID_FIELD)
+
+
+@app.command("attach-virtual-ip")
+@handle_api_errors
+def attach_virtual_ip(
+    ctx: typer.Context,
+    reserved_ip_id: str = typer.Argument(..., help="Unattached Reserved IP ID"),
+    virtual_ip_id: str = typer.Option(..., "--virtual-ip-id", help="VPC virtual IP ID (same site, available)"),
+    check_state: bool = check_state_option(),
+) -> None:
+    """Attach a Reserved IP to a VPC virtual IP (1:1 NAT).
+
+    Not yet part of the published API contract; behaviour may change.
+    """
+
+    _attach_virtual_ip(ctx, reserved_ip_id, virtual_ip_id, check_state)
+
+
+@app.command("attach-vip", hidden=True)
+@handle_api_errors
+def attach_vip_alias(
+    ctx: typer.Context,
+    reserved_ip_id: str = typer.Argument(..., help="Unattached Reserved IP ID"),
+    virtual_ip_id: str = typer.Option(..., "--virtual-ip-id", help="VPC virtual IP ID"),
+    check_state: bool = check_state_option(),
+) -> None:
+    """Alias of attach-virtual-ip."""
+
+    _attach_virtual_ip(ctx, reserved_ip_id, virtual_ip_id, check_state)
 
 
 @app.command("detach")
@@ -117,34 +216,39 @@ def attach_reserved_ip(
 def detach_reserved_ip(
     ctx: typer.Context,
     reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID"),
+    check_state: bool = check_state_option(),
 ) -> None:
-    """Detach a Reserved IP from its current resource."""
+    """Detach a Reserved IP from its VM, NAT gateway or virtual IP (it stays reserved)."""
 
-    _call(
-        ctx,
-        "POST",
-        f"networking/reserved-ips/{reserved_ip_id}/detach",
-        payload={},
+    _settings, workspace, client = _session(ctx)
+    reserved = client.reserved_ips.detach_reserved_ip(
+        reserved_ip_id, workspace_id=workspace, check_state=check_state
     )
+    print_json(reserved, id_field=ID_FIELD)
 
 
 @app.command("move")
 @handle_api_errors
 def move_reserved_ip(
     ctx: typer.Context,
-    reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID"),
-    vm_id: str = typer.Argument(..., help="Destination cloud or GPU VM ID"),
+    reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID (attached to a VPC VM)"),
+    vm_id: str = typer.Argument(..., help="Destination cloud or GPU VM ID (a different VM)"),
     vpc_id: Optional[str] = typer.Option(None, "--vpc-id"),
     subnet_id: Optional[str] = typer.Option(None, "--subnet-id"),
+    check_state: bool = check_state_option(),
 ) -> None:
-    """Atomically move a Reserved IP to another VM."""
+    """Atomically move a Reserved IP to another VPC-attached VM."""
 
-    _call(
-        ctx,
-        "POST",
-        f"networking/reserved-ips/{reserved_ip_id}/move",
-        payload=compact_payload(vm_id=vm_id, vpc_id=vpc_id, subnet_id=subnet_id),
+    _settings, workspace, client = _session(ctx)
+    reserved = client.reserved_ips.move_reserved_ip(
+        reserved_ip_id,
+        workspace_id=workspace,
+        vm_id=vm_id,
+        vpc_id=vpc_id,
+        subnet_id=subnet_id,
+        check_state=check_state,
     )
+    print_json(reserved, id_field=ID_FIELD)
 
 
 @app.command("release")
@@ -152,14 +256,16 @@ def move_reserved_ip(
 def release_reserved_ip(
     ctx: typer.Context,
     reserved_ip_id: str = typer.Argument(..., help="Reserved IP ID"),
+    check_state: bool = check_state_option(),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
 ) -> None:
-    """Release a Reserved IP."""
+    """Release a Reserved IP (it must be detached first; billing stops)."""
 
-    confirm_destructive(get_settings(ctx), f"Release Reserved IP '{reserved_ip_id}'?", yes)
-    _call(
-        ctx,
-        "DELETE",
-        f"networking/reserved-ips/{reserved_ip_id}",
-        success=f"Reserved IP '{reserved_ip_id}' released.",
-    )
+    settings, workspace, client = _session(ctx)
+    if check_state:
+        current = client.reserved_ips.get_reserved_ip(reserved_ip_id, workspace_id=workspace)
+        check_reserved_ip_releasable(current)
+    confirm_destructive(settings, f"Release Reserved IP '{reserved_ip_id}'?", yes)
+    client.reserved_ips.release_reserved_ip(reserved_ip_id, workspace_id=workspace, check_state=False)
+    if not settings.structured_output:
+        typer.secho(f"Reserved IP '{reserved_ip_id}' released.", fg=typer.colors.GREEN)

@@ -10,6 +10,8 @@ from typer.testing import CliRunner
 from ibee_cli.commands import billing, secrets
 from ibee_cli.main import app
 
+import _net_fixtures as _net
+
 runner = CliRunner()
 BASE_ARGS = ["--token", "test-token", "--workspace", "973318"]
 
@@ -58,33 +60,38 @@ def test_manual_billing_command_reports_old_sdk(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "args",
+    ("args", "script", "post_path"),
     [
-        ["vpcs", "nat", "create", "vpc-1"],
-        ["reserved-ips", "reserve", "--site-id", "site-1"],
-        [
-                "load-balancers",
-                "create-l4",
-                "edge",
-                "--backends",
-                '[{"type":"ip","target":"10.0.0.5","port":443}]',
-        ],
+        (
+            ["vpcs", "nat", "create", "vpc-1", "--billing-catalog", '{"sku_code":"NAT-GATEWAY"}'],
+            [("GET", "networking/vpcs/vpc-1", "vpc")],
+            "networking/vpcs/vpc-1/nat-gateways",
+        ),
+        (["reserved-ips", "reserve", "--site-id", "site-1"], [], "networking/reserved-ips"),
+        (
+            ["load-balancers", "create-l4", "edge", "--backends", '[{"type":"ip","target":"10.0.0.5","port":443}]'],
+            [],
+            "networking/load-balancers/l4",
+        ),
     ],
 )
-def test_billable_creates_send_one_product_request_for_edge_admission(
-    monkeypatch, args
-):
-    events = []
+def test_billable_creates_send_one_product_request_for_edge_admission(gw, args, script, post_path):
+    """Without --check-billing no billing call is made and exactly one create is sent
+    (read-only portal pre-steps such as reading the VPC may come first)."""
 
-    def request(method, url, **kwargs):
-        events.append({"method": method, "url": url})
-        return SimpleNamespace(status_code=200, content=b"{}", json=lambda: {})
-
-    monkeypatch.setattr("ibee_cli.context.httpx.request", request)
+    records = {"vpc": _net.vpc(), "rip": _net.rip(), "lb": _net.lb(layer="l4", protocol="tcp")}
+    for method, path, name in script:
+        gw.on(method, path, records[name])
+    response = {
+        "networking/vpcs/vpc-1/nat-gateways": _net.gateway_record(),
+        "networking/reserved-ips": _net.rip(),
+        "networking/load-balancers/l4": records["lb"],
+    }[post_path]
+    gw.on("POST", post_path, response)
     result = runner.invoke(app, [*BASE_ARGS, *args])
     assert result.exit_code == 0, result.output
-    assert len(events) == 1
-    assert events[0]["method"] == "POST"
+    assert [(c.method, c.path) for c in gw.writes()] == [("POST", post_path)]
+    assert not any(c.path.startswith("billing") for c in gw.calls)
 
 
 def test_secret_store_and_secret_create_rely_on_edge_admission(monkeypatch):

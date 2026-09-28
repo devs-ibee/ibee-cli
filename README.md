@@ -166,57 +166,78 @@ ibee console close SESSION_ID --yes
 ibee ops get OPERATION_ID
 ibee ops wait OPERATION_ID --timeout 1800 --poll-interval 10
 
-# VPCs
-ibee vpcs sites
+# VPCs (private by default; --connectivity nat_gateway adds a managed NAT gateway)
+ibee vpcs sites --available-only
 ibee vpcs list
-ibee vpcs create production --site-id SITE_ID --cidr 10.44.0.0/22 --no-auto-cidr
+ibee vpcs create production --site-id SITE_ID --cidr 10.44.0.0/22
+ibee vpcs create egress --site-id SITE_ID --connectivity nat_gateway \
+  --nat-billing-catalog-file nat-gateway-sku.json
 ibee vpcs get VPC_ID
 ibee vpcs update VPC_ID --name production-apps
 ibee vpcs delete VPC_ID --yes
+ibee vpcs delete VPC_ID --delete-nat-gateway --nat-ip-action release --yes
 
 # Subnets and VM attachments
 ibee vpcs subnets list VPC_ID
-ibee vpcs subnets create VPC_ID services --cidr 10.44.0.0/24 --no-auto-cidr
+ibee vpcs subnets create VPC_ID services --cidr 10.44.1.0/24
 ibee vpcs subnets update VPC_ID SUBNET_ID --dns 1.1.1.1 --dns 8.8.8.8
 ibee vpcs nodes list VPC_ID
-ibee vpcs nodes attach VPC_ID VM_ID --subnet-id SUBNET_ID --connectivity private
+ibee vpcs nodes attach VPC_ID VM_ID --subnet-id SUBNET_ID --private-ip 10.44.1.20
 ibee vpcs nodes detach VPC_ID VM_ID --yes
 
 # NAT and port forwarding
 ibee vpcs nat list VPC_ID
-ibee vpcs nat create VPC_ID --name egress --reserved-ip-id RESERVED_IP_ID
+ibee vpcs nat create VPC_ID --reserved-ip-id RESERVED_IP_ID --billing-catalog-file nat-gateway-sku.json
+ibee vpcs nat replace-ip VPC_ID NAT_GATEWAY_ID --reserved-ip-id RESERVED_IP_ID
+ibee vpcs nat delete VPC_ID NAT_GATEWAY_ID --ip-action release --wait --yes
 ibee vpcs forwarding list VPC_ID NAT_GATEWAY_ID
 ibee vpcs forwarding create VPC_ID NAT_GATEWAY_ID ssh \
   --external-port 2222 --internal-ip 10.44.0.10 --internal-port 22
+ibee vpcs forwarding create VPC_ID NAT_GATEWAY_ID web \
+  --external-port 443 --internal-ip 10.44.0.50 --internal-port 443 --target vip
 ibee vpcs forwarding update VPC_ID NAT_GATEWAY_ID RULE_ID --external-port 2200
+ibee vpcs forwarding disable VPC_ID NAT_GATEWAY_ID RULE_ID
+
+# Virtual IPs (MetalLB) in a VPC subnet
+ibee vpcs virtual-ips list VPC_ID
+ibee vpcs virtual-ips create VPC_ID --subnet-id SUBNET_ID --private-ip 10.44.0.50 \
+  --announcer-vm-id VM_1 --announcer-vm-id VM_2
+ibee vpcs virtual-ips attach-ip VPC_ID VIRTUAL_IP_ID --reserved-ip-id RESERVED_IP_ID
+ibee vpcs virtual-ips detach-ip VPC_ID VIRTUAL_IP_ID --yes
+ibee vpcs virtual-ips delete VPC_ID VIRTUAL_IP_ID --yes
 
 # Reserved public IPs
 ibee reserved-ips list --site-id SITE_ID
-ibee reserved-ips reserve --site-id SITE_ID --label edge
+ibee reserved-ips reserve --site-id SITE_ID --label edge --billing-catalog-file reserved-ip-sku.json
+ibee reserved-ips convert --vm-id VM_ID --site-id SITE_ID --label web
 ibee reserved-ips update RESERVED_IP_ID --reverse-dns app.example.com
 ibee reserved-ips attach RESERVED_IP_ID VM_ID --vpc-id VPC_ID --subnet-id SUBNET_ID
+ibee reserved-ips attach-virtual-ip RESERVED_IP_ID --virtual-ip-id VIRTUAL_IP_ID
 ibee reserved-ips detach RESERVED_IP_ID
 ibee reserved-ips move RESERVED_IP_ID NEW_VM_ID --vpc-id VPC_ID --subnet-id SUBNET_ID
 ibee reserved-ips release RESERVED_IP_ID --yes
 
 # Firewall groups, rules, and attachments
+ibee firewalls list --summary
 ibee firewalls create web --description "Web ingress"
-ibee firewalls rules create FIREWALL_GROUP_ID \
-  --protocol tcp --port-start 443 --port-end 443 --remote-target 0.0.0.0/0
+ibee firewalls rules create FIREWALL_GROUP_ID --protocol tcp --port 443 --source 0.0.0.0/0
+ibee firewalls rules create FIREWALL_GROUP_ID --protocol tcp --port 8000-8080 --source 10.0.0.0/8,192.168.1.10
 ibee firewalls rules update FIREWALL_GROUP_ID RULE_ID --disabled
+ibee firewalls attachments list FIREWALL_GROUP_ID
 ibee firewalls attachments attach FIREWALL_GROUP_ID VM_ID
 ibee firewalls attachments detach FIREWALL_GROUP_ID VM_ID --yes
 
 # L4 and L7 load balancers
 ibee load-balancers list --layer l7
-ibee load-balancers create-l4 tcp-edge \
-  --backends '[{"type":"ip","target":"10.44.0.10","port":443}]'
+ibee load-balancers create-l4 tcp-edge --backend ip:10.44.0.10:443 --health-check-type tcp
 ibee load-balancers create-l7 web \
   --protocol https \
-  --backends '[{"type":"service","target":"api","port":8080}]' \
-  --routing '{"algorithm":"least_request"}' \
+  --backend service:api:8080 --backend service:api-canary:8080:10 \
+  --algorithm least_request --timeout-ms 30000 --retries 3 \
+  --health-check-type http --health-check-path /health \
+  --rule 1:/ --rule 2:/api:X-Env=beta \
   --custom-domain app.example.com
-ibee load-balancers update-l7 LOAD_BALANCER_ID --name public-web
+ibee load-balancers update-l7 LOAD_BALANCER_ID --name public-web --clear-custom-domain
 ibee load-balancers status LOAD_BALANCER_ID
 ibee load-balancers delete LOAD_BALANCER_ID --yes
 ```
@@ -248,9 +269,11 @@ before a billable create: the create is sent only when billing answers
 guidance when adding credits in the portal can resolve it) and the command
 exits 1. The preflight never reserves funds.
 
-For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
-[API reference](https://ibee.ai/docs/api-reference). This keeps advanced
-configurations available without a large set of fragile shell flags.
+Load balancers take backends, routing, policy, health checks and L7 rules either
+as flags (`--backend TYPE:TARGET:PORT[:WEIGHT][:tls]`, `--rule
+PRIORITY:PATH_PREFIX[:HEADER=VALUE]`, ...) or as JSON (`--backends`, `--routing`,
+`--policy`, `--health-check`, `--rules`) matching the
+[API reference](https://ibee.ai/docs/api-reference).
 
 ## VM rules the CLI applies
 
@@ -302,6 +325,72 @@ anything is sent, and a broken rule exits 2:
 - `backups list-all` and `backups delete` are not yet part of the published API
   contract; behaviour may change.
 
+## Networking rules the CLI applies
+
+The networking commands call the Python SDK, which applies the portal's rules before
+anything is sent; a broken rule exits 2. `--check-state/--no-check-state` (default
+on) controls the read-only checks that need the current state.
+
+- **VPC create** defaults to `--connectivity private` (the portal default; 0.3.0
+  sent `public`, which is now deprecated and prints a warning). Names are 1-80
+  characters. A custom `--cidr` must be aligned (the error suggests the aligned
+  network), /22 to /28, and inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16;
+  `--cidr` sends `auto_cidr=false`. The site is checked with `vpcs sites` first
+  (`--no-check-site` skips it). A `nat_gateway` VPC should carry
+  `--nat-billing-catalog` (the NAT-GATEWAY SKU); without it a warning says the
+  gateway will not be metered.
+- **VPC delete** is refused while nodes are attached, a NAT gateway exists (unless
+  `--delete-nat-gateway`, which deletes it and waits up to 10 s first) or virtual
+  IPs remain.
+- **Subnets** must lie inside the VPC CIDR, not overlap other subnets, be /29 or
+  larger, and a VPC holds at most 10. `--cidr` and `--prefix-length` are exclusive.
+- **Node attach** `--private-ip` must be a usable host of the subnet (not its
+  network, broadcast or gateway address). `nat` needs a `nat_gateway` VPC with an
+  available NAT gateway; `public_ip` is not allowed in a `nat_gateway` VPC and needs
+  `--reserved-ip-id` in a private VPC. Without `--connectivity` the API picks `nat`
+  in a `nat_gateway` VPC. This creates the network allocation only; the portal's
+  VM-side attach and detach are not yet in the public API.
+- **NAT gateways** exist only in `nat_gateway` VPCs (one per VPC; `nat create`
+  prints the existing one instead of sending a create). A Reserved IP must be in
+  the VPC's site, unattached and `reserved`. `--preflight` (or `--check-billing`)
+  checks NAT-GATEWAY eligibility first. `nat delete` shows how many NAT VMs lose
+  outbound internet and how many forwarding rules are deleted before it asks;
+  `--ip-action reserve` of a platform-assigned IP needs `--billing-catalog` (the
+  RESERVED-IP SKU); deletion is refused while a virtual IP holds a Reserved IP.
+- **Port forwarding** uses single ports 1-65535 (no ranges) and tcp or udp; a
+  protocol and external port pair may appear once per gateway. The gateway must be
+  available; `--target vm` needs the private IP of a NAT-connected VM, `--target
+  vip` the private IP of an available MetalLB virtual IP (announcers default to
+  the virtual IP's).
+- **Virtual IPs** need a usable host address of the subnet and, for MetalLB, 1-32
+  NAT-connected announcer VMs in the same subnet. Delete is refused while a
+  Reserved IP is attached or a forwarding rule targets the address.
+- **Reserved IPs**: labels up to 120 characters; reverse DNS a valid hostname up to
+  253 characters (`--reverse-dns ""` clears it); `release` is refused while
+  attached; `attach` is for unattached IPs (`move` for an IP on another VM,
+  `--detach-from-service` for one on a NAT gateway or virtual IP); an attach to a VM
+  outside a VPC points at `reserved-ips convert`. `convert` runs the RESERVED-IP
+  billing check first (`--no-billing-check` skips it; it needs `billing.read`).
+- **Firewalls**: group names are unique in any case (1-120 characters) and
+  customers cannot create default groups. Rules: tcp and udp need `--port` (22 or
+  8000-8080), icmp and any take none; sources are IPv4 addresses or CIDRs (a bare
+  IP becomes /32; default 0.0.0.0/0). System-managed rules cannot be changed.
+  Attaching a group replaces the VM's current custom group; detaching restores the
+  default group.
+- **Load balancers**: names 1-128 characters; https and tls_passthrough get the
+  managed certificate automatically; custom certificates are refused; sticky
+  sessions and path rules are L7 only; `--custom-domain` needs https and a CNAME
+  already pointing at IBEE. Policy and health-check options fill unspecified values
+  with the portal defaults (timeout 30000 ms, 3 retries at 5000 ms; health check
+  http `/health` every 10000 ms, timeout 2000 ms, thresholds 2 and 3).
+- Billing catalogs (`--billing-catalog`, `--nat-billing-catalog`) cannot be looked
+  up through the public API yet; copy them from your IBEE pricing, for example the
+  `billing_catalog` of an existing Reserved IP or NAT gateway in the same site.
+- Virtual IPs, `nat replace-ip`, `reserved-ips convert` and `attach-virtual-ip`,
+  `firewalls list --summary`, `--include-deleted`, `--private-ip`, the forwarding
+  `--target` options and the load-balancer policy, health-check and logs options
+  are not yet part of the published API contract; behaviour may change.
+
 ## Global options
 
 | Option | Environment variable | Meaning |
@@ -325,7 +414,7 @@ ibee -o id vms list
 ibee -o yaml vms get VM_ID
 ```
 
-`ibee vms list`, `ibee gpus list` and `ibee firewalls list` fetch every page.
+`ibee vms list`, `ibee gpus list` and `ibee firewalls list` (with or without `--summary`) fetch every page.
 Pass `--limit`/`--offset` for a single page; the VM lists also take `--search`,
 `--sort-by created_at|name|status|os_type` and `--sort-direction asc|desc`.
 
