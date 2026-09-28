@@ -183,21 +183,24 @@ def test_create_requires_catalog_ids_before_any_sdk_call(monkeypatch, missing):
     assert calls == []
 
 
+VM_ID = "65f0c0ffee0000000000abcd"
+
+
 def test_delete_requires_confirmation(monkeypatch):
     calls = []
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))
-    result = _invoke(["vms", "delete", "vm-1"],)
+    result = _invoke(["vms", "delete", VM_ID],)
     assert result.exit_code != 0
-    assert calls == []
+    assert [name for name, _ in calls] == ["get"]
 
 
 def test_delete_yes_and_wait(monkeypatch):
     calls = []
     monkeypatch.setattr(vms, "get_client", lambda _settings: _client(calls))
-    result = _invoke(["vms", "delete", "vm-1", "--yes", "--wait"])
+    result = _invoke(["vms", "delete", VM_ID, "--yes", "--wait"])
     assert result.exit_code == 0, result.output
-    assert [name for name, _ in calls] == ["delete", "operation"]
-    assert calls[0][1]["idempotency_key"].startswith("cli-vm-delete-vm-1-")
+    assert [name for name, _ in calls] == ["get", "delete", "operation"]
+    assert calls[1][1]["idempotency_key"].startswith(f"cli-vm-delete-{VM_ID}-")
     assert "Delete completed" in result.output
 
 

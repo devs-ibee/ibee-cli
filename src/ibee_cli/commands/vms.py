@@ -4,16 +4,24 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from ibee.validation import SORT_DIRECTIONS, VM_SORT_FIELDS, validate_vm_list_params
+
 import typer
 
 from ..context import get_client, get_settings, require_workspace
 from ..helpers import (
-    finish_operation,
-    new_idempotency_key,
+    check_state_option,
+    idempotency_key_option,
+    poll_interval_option,
     response_items,
+    timeout_option,
 )
-from ..render import handle_api_errors, print_json, print_table
-from .vm_lifecycle import CLOUD_VM, register_vm_lifecycle
+from ..render import cell, handle_api_errors, print_json, print_table
+from ibee.validation import BILLING_TERMS, MAX_BATCH_VMS, NETWORK_CONNECTIVITY
+
+from .vm_lifecycle import CLOUD_VM, create_vms, register_vm_lifecycle
+from .vm_lifecycle import delete_vm as run_delete_vm
+from .vm_lifecycle import power_action as run_power_action
 
 app = typer.Typer(help="Cloud VMs", no_args_is_help=True)
 register_vm_lifecycle(app, CLOUD_VM)
@@ -21,12 +29,37 @@ register_vm_lifecycle(app, CLOUD_VM)
 
 @app.command("list")
 @handle_api_errors
-def list_vms(ctx: typer.Context) -> None:
-    """List cloud VMs in the workspace."""
+def list_vms(
+    ctx: typer.Context,
+    limit: Optional[int] = typer.Option(
+        None, "--limit", min=1, max=100, help="Return one page of at most N VMs (1-100)"
+    ),
+    offset: Optional[int] = typer.Option(None, "--offset", min=0, help="Skip N VMs (one page)"),
+    search: Optional[str] = typer.Option(None, "--search", help="Filter by text (max 120 characters)"),
+    sort_by: Optional[str] = typer.Option(
+        None, "--sort-by", help="Sort field: " + ", ".join(VM_SORT_FIELDS)
+    ),
+    sort_direction: Optional[str] = typer.Option(
+        None, "--sort-direction", help="Sort direction: " + ", ".join(SORT_DIRECTIONS)
+    ),
+    all_pages: bool = typer.Option(
+        False, "--all", help="Fetch every page (the default without --limit/--offset)"
+    ),
+) -> None:
+    """List cloud VMs in the workspace.
+
+    Without --limit/--offset every page is fetched; with either, one page is returned. The paging, search and sort options are not yet part of the published API contract; behaviour may change.
+    """
     settings = get_settings(ctx)
+    if all_pages and (limit is not None or offset is not None):
+        raise typer.BadParameter("--all cannot be combined with --limit or --offset.")
+    paging = validate_vm_list_params(
+        limit=limit, offset=offset, search=search, sort_by=sort_by, sort_direction=sort_direction
+    )
+    workspace = require_workspace(settings)
     client = get_client(settings)
-    result = client.cloud_vms.list_cloud_vms(workspace_id=require_workspace(settings))
-    if settings.as_json:
+    result = client.cloud_vms.list_cloud_vms(workspace_id=workspace, **paging)
+    if settings.structured_output:
         print_json(result)
         return
     vms = response_items(result, "items", "vms")
@@ -34,7 +67,7 @@ def list_vms(ctx: typer.Context) -> None:
         "Cloud VMs",
         ["ID", "Name", "Status", "CPU", "RAM (MB)", "Public IP"],
         [
-            (v.id, v.name, getattr(v.status, "value", v.status), v.cpu, v.ram_mb, v.public_ip)
+            tuple(cell(v, name) for name in ("id", "name", "status", "cpu", "ram_mb", "public_ip"))
             for v in vms
         ],
     )
@@ -54,68 +87,172 @@ def get_vm(ctx: typer.Context, vm_id: str = typer.Argument(..., help="VM ID")) -
 @handle_api_errors
 def create_vm(
     ctx: typer.Context,
-    name: str = typer.Argument(..., help="Display name for the VM"),
+    name: str = typer.Argument(..., help="Hostname: letters, digits and '-' (with --count, the base name)"),
     site_id: Optional[str] = typer.Option(
-        None,
-        "--site-id",
-        help="Optional placement site; omit for automatic placement",
+        None, "--site-id", help="Site to place the VM in (required). See `ibee compute sites`."
     ),
-    os_distro: str = typer.Option("ubuntu", "--os-distro", help="OS distribution (ubuntu, debian, rocky, windows)"),
-    os_type: str = typer.Option("linux", "--os-type", help="OS family (linux, windows)"),
-    cpu: int = typer.Option(2, "--cpu", help="vCPUs (fallback when no plan)"),
-    ram_mb: int = typer.Option(4096, "--ram-mb", help="RAM in MB (fallback when no plan)"),
-    plan_id: str = typer.Option(..., "--plan-id", help="Plan ID. See `ibee compute plans`."),
-    template_id: str = typer.Option(..., "--template-id", help="OS template/image ID. See `ibee compute images`."),
-    disk_gb: Optional[int] = typer.Option(None, "--disk-gb", help="Root disk size in GB"),
-    ssh_key_id: Optional[List[str]] = typer.Option(None, "--ssh-key-id", help="SSH key ID to inject (repeatable)"),
+    plan_id: str = typer.Option(..., "--plan-id", help="Plan ID for the site. See `ibee compute plans --vm-type cloud`."),
+    template_id: str = typer.Option(
+        ..., "--template-id", help="OS image ID for the site. See `ibee compute images --vm-type cloud`."
+    ),
+    os_type: Optional[str] = typer.Option(
+        None, "--os-type", help="linux or windows (default: the image's; must match it)"
+    ),
+    os_distro: Optional[str] = typer.Option(None, "--os-distro", help="Default: the image's distribution"),
+    cpu: Optional[int] = typer.Option(None, "--cpu", help="vCPUs (default: the plan's; must match it)"),
+    ram_mb: Optional[int] = typer.Option(None, "--ram-mb", help="RAM in MB (default: the plan's; must match it)"),
+    disk_gb: Optional[int] = typer.Option(None, "--disk-gb", help="Root disk in GB (default: the plan's; must match it)"),
+    billing_term: Optional[str] = typer.Option(
+        None, "--billing-term", help="Billing term: " + ", ".join(BILLING_TERMS) + " (default HOURLY, or the plan's first term)"
+    ),
+    windows_license: Optional[str] = typer.Option(
+        None,
+        "--windows-license",
+        help="Windows licence SKU as JSON (required for Windows images; the public API cannot list it yet)",
+    ),
+    windows_license_file: Optional[str] = typer.Option(None, "--windows-license-file", help="File with the licence SKU JSON"),
+    billing_catalog: Optional[str] = typer.Option(
+        None, "--billing-catalog", help="Advanced: billing SKU JSON to send instead of the plan's"
+    ),
+    billing_catalog_file: Optional[str] = typer.Option(None, "--billing-catalog-file"),
+    ssh_key: Optional[List[str]] = typer.Option(
+        None, "--ssh-key", help="Public SSH key to install, e.g. 'ssh-ed25519 AAAA... me' (repeatable; recommended)"
+    ),
+    ssh_key_file: Optional[List[str]] = typer.Option(
+        None, "--ssh-key-file", help="File with one public SSH key, e.g. ~/.ssh/id_ed25519.pub (repeatable)"
+    ),
+    ssh_key_id: Optional[List[str]] = typer.Option(
+        None,
+        "--ssh-key-id",
+        help="Saved SSH key ID (repeatable). Saved keys resolve for portal users only; prefer --ssh-key.",
+    ),
+    firewall_group_id: Optional[List[str]] = typer.Option(
+        None, "--firewall-group-id", help="Firewall group to apply (at most one)"
+    ),
+    vpc_id: Optional[str] = typer.Option(None, "--vpc-id", help="VPC to attach to (with --subnet-id)"),
+    subnet_id: Optional[str] = typer.Option(None, "--subnet-id", help="Subnet of --vpc-id"),
+    network_connectivity: Optional[str] = typer.Option(
+        None,
+        "--network-connectivity",
+        help="With a VPC: " + ", ".join(NETWORK_CONNECTIVITY) + " (default private; nat needs a NAT Gateway VPC)",
+    ),
+    reserved_public_ip_id: Optional[str] = typer.Option(
+        None,
+        "--reserved-public-ip-id",
+        help="Unattached Reserved IP in the same site (with --network-connectivity public_ip; one VM only)",
+    ),
+    count: int = typer.Option(1, "--count", min=1, max=MAX_BATCH_VMS, help="Number of VMs to create (1-5)"),
+    instance_name: Optional[List[str]] = typer.Option(
+        None, "--instance-name", help="Hostname for VM N in order, instead of NAME-N (repeatable)"
+    ),
     tag: Optional[List[str]] = typer.Option(None, "--tag", help="Tag (repeatable)"),
+    requested_by: Optional[str] = typer.Option(None, "--requested-by", help="Audit label (1-128 characters)"),
+    preflight: bool = typer.Option(
+        False,
+        "--preflight-billing",
+        help="Check billing eligibility for the plan SKU first (same as the global --check-billing)",
+    ),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is provisioned"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    """Create a cloud VM (async — returns an operation)."""
-    settings = get_settings(ctx)
-    workspace = require_workspace(settings)
-    client = get_client(settings)
-    create_args = dict(
-        workspace_id=workspace,
-        idempotency_key=new_idempotency_key("vm-create", name),
+    """Create a cloud VM (async; returns an operation).
+
+    The plan and image are looked up for --site-id: CPU, RAM, disk and OS come from them, and the plan's billing SKU is sent for --billing-term. Windows images need --windows-license. --count creates up to 5 VMs named NAME-1..NAME-N.
+    """
+    create_vms(
+        ctx,
+        CLOUD_VM,
         name=name,
-        os_distro=os_distro,
-        os_type=os_type,
-        cpu=cpu,
-        ram_mb=ram_mb,
+        count=count,
+        instance_names=instance_name,
+        site_id=site_id,
         plan_id=plan_id,
         template_id=template_id,
+        os_type=os_type,
+        os_distro=os_distro,
+        cpu=cpu,
+        ram_mb=ram_mb,
         disk_gb=disk_gb,
-        ssh_key_ids=ssh_key_id or None,
-        tags=tag or None,
+        billing_term=billing_term,
+        billing_catalog=billing_catalog,
+        billing_catalog_file=billing_catalog_file,
+        windows_license=windows_license,
+        windows_license_file=windows_license_file,
+        ssh_keys=ssh_key,
+        ssh_key_files=ssh_key_file,
+        ssh_key_ids=ssh_key_id,
+        firewall_group_ids=firewall_group_id,
+        vpc_id=vpc_id,
+        subnet_id=subnet_id,
+        network_connectivity=network_connectivity,
+        reserved_public_ip_id=reserved_public_ip_id,
+        tags=tag,
+        requested_by=requested_by,
+        preflight=preflight,
+        wait=wait,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        idempotency_key=idempotency_key,
+        client_factory=lambda settings: get_client(settings),
     )
-    if site_id is not None:
-        create_args["site_id"] = site_id
-    result = client.cloud_vms.create_cloud_vm(**create_args)
-    finish_operation(settings, client, workspace, result, "Create", name, wait)
 
 
 @app.command("delete")
 @handle_api_errors
 def delete_vm(
     ctx: typer.Context,
-    vm_id: str = typer.Argument(..., help="VM ID"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
+    vm_id: str = typer.Argument(..., help="cloud VM ID"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation (an auto-assigned public IP is released)"),
+    release_public_ip: bool = typer.Option(
+        False, "--release-public-ip", help="Release the auto-assigned public IP (the default)"
+    ),
+    reserve_public_ip: bool = typer.Option(
+        False, "--reserve-public-ip", help="Keep the auto-assigned public IP as a Reserved IP (billing continues)"
+    ),
+    reserved_ip_label: Optional[str] = typer.Option(
+        None, "--reserved-ip-label", help="Label for the Reserved IP (default: the VM name; max 120)"
+    ),
+    reserved_ip_billing_catalog: Optional[str] = typer.Option(
+        None,
+        "--reserved-ip-billing-catalog",
+        help="Reserved IP SKU JSON (needed to reserve; copy billing_catalog from a Reserved IP in the same site)",
+    ),
+    reserved_ip_billing_catalog_file: Optional[str] = typer.Option(None, "--reserved-ip-billing-catalog-file"),
+    requested_by: Optional[str] = typer.Option(None, "--requested-by"),
+    preflight: bool = typer.Option(
+        False, "--preflight-billing", help="With --reserve-public-ip, check billing eligibility for the Reserved IP SKU"
+    ),
+    check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is deleted"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    """Delete a cloud VM (async — returns an operation)."""
-    settings = get_settings(ctx)
-    if not yes:
-        typer.confirm(f"Delete cloud VM '{vm_id}'?", abort=True)
-    workspace = require_workspace(settings)
-    client = get_client(settings)
-    result = client.cloud_vms.delete_cloud_vm(
-        vm_id=vm_id,
-        workspace_id=workspace,
-        idempotency_key=new_idempotency_key("vm-delete", vm_id),
-    )
-    finish_operation(settings, client, workspace, result, "Delete", vm_id, wait)
+    """Delete a cloud VM (async; returns an operation).
 
+    When the VM has an auto-assigned public IP you are asked whether to keep it as a Reserved IP (default: release it). Attached data volumes are detached and kept.
+    """
+    run_delete_vm(
+        ctx,
+        CLOUD_VM,
+        vm_id=vm_id,
+        yes=yes,
+        reserve_public_ip=reserve_public_ip,
+        release_public_ip=release_public_ip,
+        reserved_ip_label=reserved_ip_label,
+        reserved_ip_billing_catalog=reserved_ip_billing_catalog,
+        reserved_ip_billing_catalog_file=reserved_ip_billing_catalog_file,
+        requested_by=requested_by,
+        preflight=preflight,
+        check_state=check_state,
+        wait=wait,
+        timeout=timeout,
+        poll_interval=poll_interval,
+        idempotency_key=idempotency_key,
+        client_factory=lambda settings: get_client(settings),
+    )
 
 @app.command("metrics")
 @handle_api_errors
@@ -130,38 +267,23 @@ def vm_metrics(ctx: typer.Context, vm_id: str = typer.Argument(..., help="VM ID"
     print_json(result)
 
 
-def _power_action(
-    ctx: typer.Context,
-    vm_id: str,
-    action: str,
-    wait: bool,
-    force: Optional[bool] = None,
-) -> None:
-    settings = get_settings(ctx)
-    workspace = require_workspace(settings)
-    client = get_client(settings)
-    method = getattr(client.cloud_vms, f"{action}_cloud_vm")
-    power_args = dict(
-        workspace_id=workspace,
-        vm_id=vm_id,
-        idempotency_key=new_idempotency_key(action, vm_id),
-    )
-    if force is not None:
-        power_args["force"] = force
-    result = method(**power_args)
-    finish_operation(settings, client, workspace, result, action.capitalize(), vm_id, wait)
-
-
 @app.command("start")
 @handle_api_errors
 def start_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
+    check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until started"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    """Start a cloud VM."""
-    _power_action(ctx, vm_id, "start", wait, force)
+    """Start a cloud VM (the VM must be stopped)."""
+    run_power_action(
+        ctx, CLOUD_VM, vm_id, "start", wait, force, timeout, poll_interval, idempotency_key, check_state,
+        client_factory=lambda settings: get_client(settings),
+    )
 
 
 @app.command("stop")
@@ -170,10 +292,17 @@ def stop_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
+    check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until stopped"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    """Stop a cloud VM."""
-    _power_action(ctx, vm_id, "stop", wait, force)
+    """Stop a cloud VM (the VM must be running)."""
+    run_power_action(
+        ctx, CLOUD_VM, vm_id, "stop", wait, force, timeout, poll_interval, idempotency_key, check_state,
+        client_factory=lambda settings: get_client(settings),
+    )
 
 
 @app.command("reboot")
@@ -182,7 +311,14 @@ def reboot_vm(
     ctx: typer.Context,
     vm_id: str = typer.Argument(...),
     force: Optional[bool] = typer.Option(None, "--force/--no-force"),
+    check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until rebooted"),
+    timeout: Optional[float] = timeout_option(),
+    poll_interval: Optional[float] = poll_interval_option(),
+    idempotency_key: Optional[str] = idempotency_key_option(),
 ) -> None:
-    """Reboot a cloud VM."""
-    _power_action(ctx, vm_id, "reboot", wait, force)
+    """Reboot a cloud VM (the VM must be running)."""
+    run_power_action(
+        ctx, CLOUD_VM, vm_id, "reboot", wait, force, timeout, poll_interval, idempotency_key, check_state,
+        client_factory=lambda settings: get_client(settings),
+    )

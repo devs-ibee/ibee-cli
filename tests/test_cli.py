@@ -37,7 +37,7 @@ def test_help_lists_command_groups():
 def test_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "ibee-cli 0.3.0" in result.output
+    assert "ibee-cli 0.4.0" in result.output
 
 
 def test_subcommand_help():
@@ -147,8 +147,8 @@ def test_new_secret_store_commands_call_matching_sdk_methods(monkeypatch, tmp_pa
     )
 
     commands = [
-        ["secrets", "stores", "unarchive", "store-1"],
-        ["secrets", "stores", "delete-permanent", "store-1", "--yes"],
+        ["secrets", "stores", "unarchive", "store-1", "--no-check-state"],
+        ["secrets", "stores", "delete-permanent", "store-1", "--yes", "--no-check-state"],
         ["secrets", "batch-create", "--store-id", "store-1", "--file", str(batch_file)],
         ["secrets", "patch-value", "secret-1", "--value", '{"user":"ibee"}'],
         ["secrets", "versions", "secret-1"],
@@ -156,7 +156,7 @@ def test_new_secret_store_commands_call_matching_sdk_methods(monkeypatch, tmp_pa
         ["secrets", "rollback", "secret-1", "--version", "1"],
         ["secrets", "undelete", "secret-1", "--versions", "1,2"],
         ["secrets", "destroy-versions", "secret-1", "--versions", "1", "--yes"],
-        ["secrets", "delete-permanent", "secret-1", "--yes"],
+        ["secrets", "delete-permanent", "secret-1", "--yes", "--no-check-state"],
     ]
     for command in commands:
         result = runner.invoke(app, command, env=env)
@@ -271,7 +271,7 @@ def test_identity_and_scope_commands_call_matching_sdk_methods(monkeypatch):
             "update",
             "scope-1",
             "--access-mode",
-            "read_only",
+            "read_write",
             "--deny-version-read",
             "--deny-rollback",
             "--allow-destroy",

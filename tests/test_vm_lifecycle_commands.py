@@ -16,6 +16,8 @@ from ibee_cli.main import app
 
 runner = CliRunner()
 BASE = ["--token", "test-token", "--workspace", "973318"]
+SNAP_SKU = '{"sku_id": 7, "sku_code": "SNAPSHOT-STD", "product_code": "snapshot_storage"}'
+BACKUP_SKU = '{"sku_id": 8, "sku_code": "BACKUP-STD", "product_code": "backup_storage"}'
 
 
 class RecordingResource:
@@ -146,7 +148,7 @@ def test_core_lifecycle_commands_forward_to_typed_sdk(calls, group, fragment, ar
     ("args", "method", "positionals", "expected"),
     [
         (["snapshots", "list", "vm-1", "--limit", "20", "--offset", "5", "--search", "nightly"], "list_{f}_snapshots", ("vm-1",), {"limit": 20, "offset": 5, "search": "nightly"}),
-        (["snapshots", "create", "vm-1", "before-upgrade", "--mode", "selective", "--selected-data-volume-id", "vol-1"], "create_{f}_snapshot", ("vm-1",), {"name": "before-upgrade", "mode": "selective", "selected_data_volume_ids": ["vol-1"]}),
+        (["snapshots", "create", "vm-1", "before-upgrade", "--mode", "selective", "--selected-data-volume-id", "vol-1", "--billing-catalog", SNAP_SKU], "create_{f}_snapshot", ("vm-1",), {"name": "before-upgrade", "mode": "selective", "selected_data_volume_ids": ["vol-1"], "billing_catalog": {"sku_id": 7, "sku_code": "SNAPSHOT-STD", "product_code": "snapshot_storage"}, "check_state": True}),
         (["snapshots", "get", "snap-1"], "get_{f}_snapshot", ("snap-1",), {}),
         (["snapshots", "delete", "snap-1", "--yes"], "delete_{f}_snapshot", ("snap-1",), {}),
         (["snapshots", "restore", "vm-1", "snap-1", "--target-mode", "new_vm", "--target-vm-name", "restored", "--target-site-id", "site-1", "--auto-start", "--yes"], "restore_{f}_snapshot", ("snap-1",), {"vm_id": "vm-1", "target_mode": "new_vm", "target_vm_name": "restored", "target_site_id": "site-1", "auto_start": True}),
@@ -175,7 +177,7 @@ def test_snapshot_lifecycle_forwards_to_typed_sdk(calls, group, fragment, args, 
     [
         (["backup-policy", "get", "vm-1"], "get_{f}_backup_policy", ("vm-1",), {}),
         (["backup-policy", "update", "vm-1", "--frequency", "weekly", "--timezone", "Asia/Kolkata", "--day-of-week", "6", "--retention-days", "30", "--incremental"], "update_{f}_backup_policy", ("vm-1",), {"schedule": {"frequency": "weekly", "timezone": "Asia/Kolkata", "day_of_week": 6}, "retention_days": 30, "incremental_enabled": True}),
-        (["backup-policy", "enable", "vm-1", "--frequency", "daily", "--hour", "2"], "enable_{f}_backups", ("vm-1",), {"schedule": {"frequency": "daily", "hour": 2}}),
+        (["backup-policy", "enable", "vm-1", "--frequency", "daily", "--hour", "2", "--billing-catalog", BACKUP_SKU], "enable_{f}_backups", ("vm-1",), {"schedule": {"frequency": "daily", "hour": 2}, "billing_catalog": {"sku_id": 8, "sku_code": "BACKUP-STD", "product_code": "backup_storage"}}),
         (["backup-policy", "disable", "vm-1"], "disable_{f}_backups", ("vm-1",), {}),
         (["backup-policy", "reschedule", "vm-1", "--next-run-at", "2026-08-10T02:00:00Z"], "reschedule_{f}_backup", ("vm-1",), {"next_run_at": dt.datetime(2026, 8, 10, 2, tzinfo=dt.timezone.utc)}),
     ],
@@ -201,7 +203,7 @@ def test_backup_policy_lifecycle_forwards_to_typed_sdk(calls, group, fragment, a
     ("args", "method", "positionals", "expected"),
     [
         (["backups", "list", "vm-1", "--limit", "10"], "list_{f}_backup_runs", ("vm-1",), {"limit": 10}),
-        (["backups", "create", "vm-1", "--reason", "release"], "create_{f}_backup_run", ("vm-1",), {"reason": "release"}),
+        (["backups", "create", "vm-1", "--reason", "release", "--billing-catalog", BACKUP_SKU], "create_{f}_backup_run", ("vm-1",), {"reason": "release", "billing_catalog": {"sku_id": 8, "sku_code": "BACKUP-STD", "product_code": "backup_storage"}}),
         (["backups", "get", "run-1"], "get_{f}_backup_run", ("run-1",), {}),
         (["backups", "restore", "vm-1", "rp-1", "--target-mode", "volume_only", "--selected-volume-id", "vol-1", "--yes"], "restore_{f}_backup", ("vm-1",), {"recovery_point_id": "rp-1", "target_mode": "volume_only", "selected_volume_id": "vol-1"}),
         (["backups", "restore-status", "restore-1"], "get_{f}_backup_restore", ("restore-1",), {}),
@@ -235,7 +237,7 @@ def test_destructive_vm_commands_require_confirmation(calls):
 @pytest.mark.parametrize(
     ("args", "method", "positionals", "expected"),
     [
-        (["console", "create", "vm-1", "--vm-type", "gpu", "--console-type", "graphical"], "create_vm_console_session", (), {"vm_id": "vm-1", "vm_type": "gpu", "console_type": "graphical"}),
+        (["console", "create", "vm-1", "--vm-type", "cloud", "--console-type", "graphical"], "create_vm_console_session", (), {"vm_id": "vm-1", "vm_type": "cloud", "console_type": "graphical", "check_state": True}),
         (["console", "get", "session-1"], "get_vm_console_session", ("session-1",), {}),
         (["console", "close", "session-1", "--reason", "finished", "--yes"], "close_vm_console_session", ("session-1",), {"reason": "finished"}),
     ],
