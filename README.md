@@ -88,22 +88,27 @@ ibee cdn delete DISTRIBUTION_ID --yes
 # Cloud VMs
 ibee vms list
 ibee vms get VM_ID
-ibee vms create web-01 --plan-id PLAN_ID --template-id IMAGE_ID --ssh-key-id KEY_ID --wait
+ibee vms create web-01 --site-id SITE_ID --plan-id PLAN_ID --template-id IMAGE_ID \
+  --ssh-key-file ~/.ssh/id_ed25519.pub --wait
+ibee vms create web --count 3 --site-id SITE_ID --plan-id PLAN_ID --template-id IMAGE_ID \
+  --billing-term MONTHLY --firewall-group-id FIREWALL_GROUP_ID \
+  --vpc-id VPC_ID --subnet-id SUBNET_ID --network-connectivity nat
 ibee vms start VM_ID
 ibee vms stop VM_ID
 ibee vms reboot VM_ID
 ibee vms metrics VM_ID
 ibee vms metrics-timeseries VM_ID --range 24h
-ibee vms bandwidth VM_ID --month 2026-08
+ibee vms bandwidth VM_ID              # current UTC month; --month 2026-08 for another
 ibee vms events VM_ID --limit 50
 
 # Access credentials. Passwords are never accepted as command arguments.
 printf '%s\n' "$NEW_VM_PASSWORD" | ibee vms access-update VM_ID --password-stdin --wait
 ibee vms access-update VM_ID --prompt-password --enable-password-auth --wait
-ibee vms access-update VM_ID --ssh-key-mode add --ssh-key-id SSH_KEY_ID --wait
+ibee vms access-update VM_ID --ssh-key-mode add --ssh-key-file ~/.ssh/id_ed25519.pub --wait
 
 # Resize and persistent block volumes
-ibee vms resize-precheck VM_ID --cpu 4 --ram-mb 8192 --disk-gb 80
+ibee vms resize-precheck VM_ID --plan-id PLAN_ID
+ibee vms resize VM_ID --plan-id PLAN_ID --billing-term HOURLY --wait
 ibee vms resize VM_ID --cpu 4 --ram-mb 8192 --disk-gb 80 --wait
 ibee vms resize-plan VM_ID --cpu 8 --ram-mb 16384 --confirm-downgrade --wait
 ibee vms resize-root-disk VM_ID --new-size-gb 120 --wait
@@ -113,41 +118,46 @@ ibee vms volume-detach VM_ID VOLUME_ID --confirm-unmounted --yes --wait
 
 # Snapshots and restores
 ibee vms snapshots list VM_ID
-ibee vms snapshots create VM_ID before-upgrade --mode all_attached
+ibee vms snapshots create VM_ID before-upgrade --mode all_attached \
+  --billing-catalog-file snapshot-sku.json --wait
 ibee vms snapshots get SNAPSHOT_SET_ID
 ibee vms snapshots restore VM_ID SNAPSHOT_SET_ID \
-  --target-mode new_vm --target-vm-name restored-web --auto-start --yes
-ibee vms snapshots restore-status RESTORE_ID
+  --target-mode new_vm --target-plan-id PLAN_ID --target-vm-name restored-web --yes --wait
+ibee vms snapshots restore-status RESTORE_ID --wait
 ibee vms snapshots delete SNAPSHOT_SET_ID --yes
 
 # Automated backup policy and manual backup runs
 ibee vms backup-policy get VM_ID
-ibee vms backup-policy enable VM_ID \
+ibee vms backup-policy enable VM_ID --billing-catalog-file backup-sku.json \
   --frequency daily --timezone Asia/Kolkata --hour 2 --retention-days 30
 ibee vms backup-policy update VM_ID --frequency weekly --day-of-week 6
 ibee vms backup-policy reschedule VM_ID --next-run-at 2026-08-10T02:00:00Z
 ibee vms backup-policy disable VM_ID
-ibee vms backups list VM_ID
-ibee vms backups create VM_ID --reason before-release
+ibee vms backups list VM_ID --restorable-only
+ibee vms backups list-all --status succeeded
+ibee vms backups create VM_ID --billing-catalog-file backup-sku.json --reason before-release --wait
 ibee vms backups get BACKUP_RUN_ID
 ibee vms backups restore VM_ID RECOVERY_POINT_ID --target-mode replace --yes
-ibee vms backups restore-status RESTORE_ID
-ibee vms delete VM_ID --yes --wait
+ibee vms backups restore-status RESTORE_ID --wait
+ibee vms backups delete BACKUP_RUN_ID --yes
+ibee vms delete VM_ID --wait                     # asks: keep the public IP as a Reserved IP?
+ibee vms delete VM_ID --yes --release-public-ip --wait
 
 # GPU VMs expose the same lifecycle, snapshot, backup, metrics, and volume commands
 ibee gpus list
-ibee gpus create train-01 --gpu-model A100 --gpu-count 1 \
-  --plan-id PLAN_ID --template-id IMAGE_ID --wait
+ibee gpus create train-01 --site-id SITE_ID --plan-id PLAN_ID --template-id IMAGE_ID \
+  --ssh-key-file ~/.ssh/id_ed25519.pub --wait
 ibee gpus start VM_ID
 ibee gpus stop VM_ID
 ibee gpus reboot VM_ID
 ibee gpus metrics VM_ID
 ibee gpus resize-precheck VM_ID --cpu 16 --ram-mb 65536
 ibee gpus snapshots create VM_ID before-training --mode root_only
-ibee gpus backup-policy enable VM_ID --frequency daily --retention-days 14
+ibee gpus backup-policy enable VM_ID --billing-catalog-file backup-sku.json \
+  --frequency weekly --day-of-week 6 --retention-days 14
 ibee gpus delete VM_ID --yes
 
-# Short-lived graphical console sessions for either VM type
+# Short-lived graphical console sessions (cloud VMs that are running)
 ibee console create VM_ID --vm-type cloud
 ibee console get SESSION_ID
 ibee console close SESSION_ID --yes
@@ -241,6 +251,56 @@ exits 1. The preflight never reserves funds.
 For load-balancer backends, routing, TLS, and L7 rules, pass JSON matching the
 [API reference](https://ibee.ai/docs/api-reference). This keeps advanced
 configurations available without a large set of fragile shell flags.
+
+## VM rules the CLI applies
+
+The VM commands follow the IBEE portal. The Python SDK checks these rules before
+anything is sent, and a broken rule exits 2:
+
+- **Create** needs `--site-id`. The plan and image are looked up for that site:
+  the plan must be selectable and priced, and CPU, RAM, disk, GPU model and count
+  and OS come from the plan and image (values you pass must match them). The plan's
+  billing SKU is sent for `--billing-term` (cloud VMs default to `HOURLY`; GPU VMs
+  send the plan SKU unchanged unless you pass a term). Hostnames use letters,
+  digits and `-`. `--count 2..5` creates `NAME-1..NAME-N` (or `--instance-name`
+  overrides), one request and idempotency key per VM, stopping at the first error.
+  Inline `--ssh-key`/`--ssh-key-file` public keys are recommended: saved
+  `--ssh-key-id` keys resolve only for portal users. At most one
+  `--firewall-group-id`. `--network-connectivity` needs `--vpc-id` and
+  `--subnet-id`: `nat` needs a NAT Gateway VPC, and `public_ip` on a private VPC
+  needs an unattached `--reserved-public-ip-id` in the same site (one VM only).
+- **Windows images** need `--windows-license` (the Windows licence SKU as JSON,
+  priced per vCPU). The public API cannot list that SKU yet.
+- **Delete** asks whether to keep an auto-assigned public IP as a Reserved IP
+  (default: release; `--yes` releases). Reserving needs
+  `--reserved-ip-billing-catalog`, the Reserved IP SKU, which you can copy from
+  the `billing_catalog` of a Reserved IP in the same site. Attached data volumes
+  are detached and kept.
+- **State checks** (on by default; `--no-check-state` skips them): start needs a
+  stopped VM; stop, reboot, access-update and console need a running VM; resizes
+  and volume attach/detach need running, stopped or error; delete is refused while
+  the VM is being deleted or resized.
+- **Resize** with `--plan-id` runs the precheck first and resizes only when it can
+  run in place, sending the new plan's SKU (a Windows VM keeps its licence).
+  `resize-plan` rejects an unchanged shape and needs `--confirm-downgrade` to shrink;
+  `resize-root-disk` only grows (up to 10000 GB).
+- **Access updates** are for Linux VMs; new passwords need 8 or more characters;
+  disabling password login needs an SSH key left on the VM.
+- **Volumes**: `volume-attach` reads the volume (it must be unattached, idle and in
+  the VM's site) and sends its Block Storage SKU; `volume-detach` needs
+  `--confirm-unmounted` or `--force`.
+- **Snapshots and backups** are billed: `snapshots create`, `backup-policy enable`
+  and `backups create` need `--billing-catalog` (or `--billing-catalog-file`), the
+  `snapshot_storage` SKU (code `SNAPSHOT-STD`) or `backup_storage` SKU (code
+  `BACKUP-STD`). The public API cannot list these SKUs yet; copy `billing_catalog`
+  from an existing snapshot set or backup run. Backup schedules are daily or weekly
+  (`--day-of-week` 0 = Monday, required for weekly) in an IANA time zone.
+- **Restores**: `--target-mode new_vm` resolves the plan (default: the VM's plan,
+  which must fit the captured root disk), its SKU and default names;
+  `volume_only` needs `--selected-volume-id`. `--wait` on snapshot, backup and
+  restore commands polls every 5 s for up to 30 minutes by default.
+- `backups list-all` and `backups delete` are not yet part of the published API
+  contract; behaviour may change.
 
 ## Global options
 

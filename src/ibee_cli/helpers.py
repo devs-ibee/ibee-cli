@@ -139,9 +139,10 @@ def resolve_idempotency_key(explicit: Optional[str], action: str, ident: str = "
 # ---------------------------------------------------------------------------
 
 
-def timeout_option() -> Any:
-    """Shared ``--timeout`` option (seconds) for ``--wait``."""
+def timeout_option(default: Optional[float] = None) -> Any:
+    """Shared ``--timeout`` option (seconds) for ``--wait``; ``default`` only changes the help."""
 
+    shown = DEFAULT_WAIT_TIMEOUT_SECONDS if default is None else default
     return typer.Option(
         None,
         "--timeout",
@@ -149,7 +150,7 @@ def timeout_option() -> Any:
         show_default=False,
         help=(
             f"Seconds to wait ({MIN_WAIT_TIMEOUT_SECONDS:g}-{MAX_WAIT_TIMEOUT_SECONDS:g}, "
-            f"default {DEFAULT_WAIT_TIMEOUT_SECONDS:g}; used with --wait)"
+            f"default {shown:g}; used with --wait)"
         ),
     )
 
@@ -181,20 +182,22 @@ def resolve_wait(
     poll_interval: Optional[float] = None,
     *,
     require_wait: bool = True,
+    default_timeout: Optional[float] = None,
 ) -> Optional[WaitConfig]:
     """Validate ``--wait``/``--timeout``/``--poll-interval`` before any request.
 
     Returns ``None`` when not waiting. ``--timeout``/``--poll-interval`` without
     ``--wait`` exit 2 (unless ``require_wait`` is false, as for ``ops wait``).
+    ``default_timeout`` replaces the 1200 s default (recovery waits use 1800 s).
     """
 
     if not wait and require_wait:
         if timeout is not None or poll_interval is not None:
             raise typer.BadParameter("--timeout and --poll-interval require --wait.")
         return None
-    wait_timeout = validate_wait_timeout(
-        DEFAULT_WAIT_TIMEOUT_SECONDS if timeout is None else timeout
-    )
+    if timeout is None:
+        timeout = DEFAULT_WAIT_TIMEOUT_SECONDS if default_timeout is None else default_timeout
+    wait_timeout = validate_wait_timeout(timeout)
     interval = DEFAULT_POLL_INTERVAL_SECONDS if poll_interval is None else poll_interval
     if poll_interval is None:
         interval = min(interval, wait_timeout)
@@ -318,6 +321,164 @@ def finish_operation(
         return
     tail = f" (operation {op_id}) — poll: ibee ops wait {op_id}" if op_id else ""
     typer.secho(f"{action} accepted for {ident}{tail}", fg=typer.colors.GREEN)
+
+
+def finish_operations(
+    settings: Any,
+    client: Any,
+    workspace_id: str,
+    results: Sequence[Any],
+    action: str,
+    idents: Sequence[str],
+    wait: Optional[WaitConfig],
+    *,
+    idempotency_keys: Optional[Sequence[Optional[str]]] = None,
+) -> None:
+    """Render several accepted operations (``--count`` batch creates).
+
+    One result behaves exactly like :func:`finish_operation`. With several, every
+    operation is reported (or waited for) before the command exits: 1 when any
+    failed, 3 when any wait timed out. In json/yaml/id mode one list is printed.
+    """
+
+    keys = list(idempotency_keys or [None] * len(results))
+    if len(results) == 1:
+        finish_operation(
+            settings, client, workspace_id, results[0], action, idents[0], wait,
+            idempotency_key=keys[0],
+        )
+        return
+    mode = getattr(settings, "output", None)
+    structured = mode in ("json", "yaml", "id")
+    finals: list[Any] = []
+    failed = timed_out = False
+    for result, ident, key in zip(results, idents, keys):
+        op_id = _field(result, "operation_id") or _field(result, "id")
+        if wait is None or not op_id:
+            finals.append(result)
+            if not structured:
+                tail = f" (operation {op_id})" if op_id else ""
+                typer.secho(f"{action} accepted for {ident}{tail}", fg=typer.colors.GREEN)
+            continue
+        try:
+            final = wait_for_operation(client, workspace_id, op_id, wait.timeout, wait.poll_interval)
+        except OperationTimeoutError as exc:
+            timed_out = True
+            finals.append(result)
+            typer.secho(
+                f"{action} still {exc.last_status or 'pending'} for {ident} after {wait.timeout:g}s; "
+                f"resume with: ibee ops wait {op_id}",
+                fg=typer.colors.YELLOW,
+                err=True,
+            )
+            retry_hint(key)
+            continue
+        finals.append(final)
+        if _status_text(final) in _SUCCEEDED:
+            if not structured:
+                typer.secho(
+                    f"{action} completed for {ident} (operation {op_id}).", fg=typer.colors.GREEN
+                )
+        else:
+            failed = True
+            typer.secho(
+                _operation_failure_text(final, action, ident, op_id), fg=typer.colors.RED, err=True
+            )
+    if structured:
+        print_structured(finals, mode, id_field="operation_id")
+    if failed:
+        raise typer.Exit(code=EXIT_FAILURE)
+    if timed_out:
+        raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
+
+
+def wait_for_recovery(
+    settings: Any,
+    waiter: Any,
+    ident: str,
+    wait: WaitConfig,
+    *,
+    label: str,
+    resume: str,
+    **kwargs: Any,
+) -> Any:
+    """Poll a snapshot, backup run or restore with an SDK ``wait_for_*`` helper.
+
+    Prints the final object (JSON by default). A failed or cancelled result raises the
+    SDK's ``RecoveryFailedError`` (exit 1); when ``--timeout`` passes first the command
+    prints how to resume and exits 3.
+    """
+
+    try:
+        final = waiter(ident, timeout=wait.timeout, poll_interval=wait.poll_interval, **kwargs)
+    except OperationTimeoutError as exc:
+        typer.secho(
+            f"{label} still {exc.last_status or 'pending'} for {ident} after {wait.timeout:g}s; "
+            f"resume with: {resume}",
+            fg=typer.colors.YELLOW,
+            err=True,
+        )
+        raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
+    print_json(final)
+    return final
+
+
+def check_state_option() -> Any:
+    """Shared ``--check-state/--no-check-state`` option (default on)."""
+
+    return typer.Option(
+        True,
+        "--check-state/--no-check-state",
+        help="Read the current state first and apply the portal's rules before sending (default: on)",
+    )
+
+
+def load_json_input(value: Optional[str], path: Optional[str], option: str) -> Optional[dict]:
+    """A JSON object from ``--<option> JSON`` or ``--<option>-file PATH`` (not both)."""
+
+    if value is not None and path is not None:
+        raise typer.BadParameter(f"Use only one of --{option} or --{option}-file.")
+    if path is not None:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                value = handle.read()
+        except OSError as exc:
+            raise typer.BadParameter(f"Cannot read --{option}-file {path}: {exc.strerror or exc}")
+    if value is None:
+        return None
+    return parse_json_object(value, f"--{option}")
+
+
+def read_text_files(paths: Optional[Sequence[str]], option: str) -> list[str]:
+    """Contents of each ``--<option> PATH`` (for example public SSH key files), stripped."""
+
+    values: list[str] = []
+    for path in paths or []:
+        try:
+            with open(path, encoding="utf-8") as handle:
+                values.append(handle.read().strip())
+        except OSError as exc:
+            raise typer.BadParameter(f"Cannot read {option} {path}: {exc.strerror or exc}")
+    return values
+
+
+def parse_key_value_pairs(raw: Optional[Sequence[str]], option: str) -> Optional[dict]:
+    """``KEY=VALUE`` options (repeatable) as a dict; ``None`` when none are given."""
+
+    if not raw:
+        return None
+    out: dict[str, str] = {}
+    for item in raw:
+        if "=" not in item:
+            raise typer.BadParameter(f"{option} expects KEY=VALUE, got {item!r}.")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise typer.BadParameter(f"{option} expects KEY=VALUE, got {item!r}.")
+        if key in out:
+            raise typer.BadParameter(f"{option} repeats {key!r}.")
+        out[key] = value
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -491,9 +652,13 @@ __all__ = [
     "IbeeValidationError",
     "WaitConfig",
     "check_billing_eligibility",
+    "check_state_option",
     "compact_payload",
     "confirm_destructive",
     "finish_operation",
+    "finish_operations",
+    "load_json_input",
+    "parse_key_value_pairs",
     "idempotency_key_option",
     "new_idempotency_key",
     "parse_json_array",
@@ -503,9 +668,11 @@ __all__ = [
     "preflight_billing",
     "preflight_create",
     "print_json",
+    "read_text_files",
     "resolve_idempotency_key",
     "resolve_wait",
     "response_items",
     "timeout_option",
     "wait_for_operation",
+    "wait_for_recovery",
 ]
