@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 import typer
 
 from . import __version__
@@ -25,7 +27,10 @@ from .context import settings_from_env
 
 app = typer.Typer(
     name="ibee",
-    help="IBEE Solutions cloud platform CLI. Auth: set IBEE_TOKEN and IBEE_WORKSPACE_ID.",
+    help=(
+        "IBEE Solutions cloud platform CLI. Auth: set IBEE_TOKEN and IBEE_WORKSPACE_ID. "
+        "Exit codes: 0 ok, 1 API/operation failure, 2 usage/validation, 3 --wait timeout."
+    ),
     no_args_is_help=True,
 )
 
@@ -59,13 +64,57 @@ def main(
         None, "--workspace", "-w", help="Workspace ID (default: IBEE_WORKSPACE_ID env)"
     ),
     dev: bool = typer.Option(False, "--dev", help="Use the development environment"),
-    base_url: str = typer.Option(None, "--base-url", help="Override the API base URL"),
-    as_json: bool = typer.Option(False, "--json", help="Output raw JSON"),
+    base_url: str = typer.Option(
+        None,
+        "--base-url",
+        help="Override the API base URL (default: IBEE_BASE_URL, then IBEE_ENDPOINT, then IBEE_ENV)",
+    ),
+    output: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        envvar="IBEE_OUTPUT",
+        help="Output format: table, json, yaml or id (default: each command's usual format)",
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Output JSON (same as -o json)"),
+    assume_yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Answer yes to every confirmation (env IBEE_ASSUME_YES=1)",
+    ),
+    check_billing: bool = typer.Option(
+        False,
+        "--check-billing",
+        help=(
+            "Ask billing before a billable create and stop when it would be denied "
+            "(env IBEE_CHECK_BILLING=1)"
+        ),
+    ),
     version: bool = typer.Option(
         None, "--version", callback=_version_callback, is_eager=True, help="Show version"
     ),
 ) -> None:
-    ctx.obj = settings_from_env(token, workspace, dev, base_url, as_json)
+    """IBEE Solutions cloud platform CLI.
+
+    Exit codes: 0 success; 1 API, network or operation failure (or a declined
+    confirmation); 2 usage or validation error; 3 --wait timed out while the
+    operation was still running.
+    """
+    if as_json and output is not None:
+        source = ctx.get_parameter_source("output")
+        if source is not None and source.name == "ENVIRONMENT":
+            output = None
+    ctx.obj = settings_from_env(
+        token,
+        workspace,
+        dev,
+        base_url,
+        as_json,
+        output=output,
+        assume_yes=assume_yes,
+        check_billing=check_billing,
+    )
 
 
 if __name__ == "__main__":
