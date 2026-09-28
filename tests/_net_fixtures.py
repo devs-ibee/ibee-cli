@@ -16,7 +16,15 @@ from ibee import Ibee
 from typer.testing import CliRunner
 
 from ibee_cli import context
-from ibee_cli.commands import firewalls, load_balancers, networking, reserved_ips
+from ibee_cli.commands import (
+    block_storage,
+    buckets,
+    cdn,
+    firewalls,
+    load_balancers,
+    networking,
+    reserved_ips,
+)
 from ibee_cli.main import app
 
 WS = "973318"
@@ -39,6 +47,7 @@ class Gateway:
     def __init__(self) -> None:
         self.routes: dict[tuple[str, str], list] = {}
         self.calls: list[SimpleNamespace] = []
+        self.base_url = BASE_URL
 
     def on(self, method: str, path: str, *responses) -> "Gateway":
         self.routes.setdefault((method.upper(), path), []).extend(responses or [None])
@@ -50,21 +59,32 @@ class Gateway:
             path = path[len("/v1/"):]
         body = json.loads(request.content) if request.content else None
         self.calls.append(
-            SimpleNamespace(method=request.method, path=path, params=dict(request.url.params), json=body)
+            SimpleNamespace(
+                method=request.method,
+                path=path,
+                params=dict(request.url.params),
+                json=body,
+                headers=dict(request.headers),
+                raw_path=request.url.raw_path.decode(),
+            )
         )
         queue = self.routes.get((request.method, path))
         if not queue:
             raise AssertionError(f"unexpected request {request.method} {path}")
         item = queue.pop(0) if len(queue) > 1 else queue[0]
-        status, payload = item if isinstance(item, tuple) else (200, item)
+        headers = None
+        if isinstance(item, tuple) and len(item) == 3:
+            status, payload, headers = item
+        else:
+            status, payload = item if isinstance(item, tuple) else (200, item)
         if payload is None:
-            return httpx.Response(204 if status == 200 else status)
-        return httpx.Response(status, json=payload)
+            return httpx.Response(204 if status == 200 else status, headers=headers)
+        return httpx.Response(status, json=payload, headers=headers)
 
     def client(self) -> Ibee:
         return Ibee(
             token="test-token",
-            base_url=BASE_URL,
+            base_url=self.base_url,
             httpx_client=httpx.Client(transport=httpx.MockTransport(self.handler)),
             max_retries=0,
         )
@@ -82,11 +102,11 @@ class Gateway:
 
 
 def install(monkeypatch) -> Gateway:
-    """Route every networking command's SDK client to a new scripted gateway."""
+    """Route every networking and storage command's SDK client to a new scripted gateway."""
 
     gateway = Gateway()
     factory = lambda _settings: gateway.client()  # noqa: E731
-    for module in (networking, reserved_ips, firewalls, load_balancers, context):
+    for module in (networking, reserved_ips, firewalls, load_balancers, block_storage, buckets, cdn, context):
         monkeypatch.setattr(module, "get_client", factory)
     return gateway
 

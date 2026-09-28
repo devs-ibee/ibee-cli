@@ -24,20 +24,24 @@ Both can also be passed per command with `--token` and `--workspace`.
 ## Usage
 
 ```bash
-# Object storage
+# Object storage (region defaults to in-south-1 on api.ibee.ai, in-south-2 on api.ibee.co.in)
 ibee buckets list
-ibee buckets create my-bucket --region in-south-1
+ibee buckets list --all
+ibee buckets create my-bucket
+ibee buckets create locked-bucket --retention-mode GOVERNANCE --retention-days 30
 ibee buckets get my-bucket
 ibee buckets update my-bucket --public
-ibee buckets delete my-bucket --yes
+ibee buckets update my-bucket --private --yes   # removes its CDN distribution
+ibee buckets delete my-bucket --yes             # empty buckets only
 
 # S3-compatible credentials (secret_access_key is shown only at creation)
 ibee buckets credentials list
-ibee buckets credentials create --name deploy
+ibee buckets credentials create --name deploy                 # admin_rw, all buckets
 ibee buckets credentials create \
-  --name backups --bucket-scope specific --allowed-bucket my-bucket
+  --name backups --permission-type object_rw \
+  --bucket-scope specific --allowed-bucket my-bucket
 ibee buckets credentials get ACCESS_KEY_ID
-ibee buckets credentials revoke ACCESS_KEY_ID --yes
+ibee buckets credentials delete ACCESS_KEY_ID --yes           # permanent (alias: revoke)
 
 # Secret Store — stores
 ibee secrets stores list
@@ -64,24 +68,27 @@ ibee billing eligibility --sku-code PLAN_SKU
 ibee -o table billing eligibility --sku-code PLAN_SKU --require
 
 # Standalone Block Storage
-ibee block-storage list
+ibee block-storage list --all
 ibee block-storage create data --size-gb 100 --site-id SITE_ID
+ibee block-storage create gpu-data --size-gb 500 --site-id SITE_ID --vm-type gpu
 ibee block-storage get VOLUME_ID
-ibee block-storage operations VOLUME_ID
-ibee block-storage attach VOLUME_ID --node-name NODE --vm-id VM_ID
-ibee block-storage detach VOLUME_ID --node-name NODE --confirm-unmounted
-ibee block-storage resize VOLUME_ID --new-size-gb 200
+ibee block-storage operations VOLUME_ID --limit 50
+ibee block-storage attach-vm VOLUME_ID VM_ID --wait
+ibee block-storage detach-vm VOLUME_ID --confirm-unmounted --wait
+ibee block-storage resize VOLUME_ID --new-size-gb 200 --vm-state stopped
 ibee block-storage delete VOLUME_ID --yes
 
 # CDN
 ibee cdn list
-ibee cdn create assets --origin-id BUCKET_NAME
+ibee cdn create assets --origin-id BUCKET_NAME           # the bucket must be public
 ibee cdn get DISTRIBUTION_ID
 ibee cdn update DISTRIBUTION_ID --cache-policy media
+ibee cdn metrics DISTRIBUTION_ID --range 7d
 ibee cdn website set DISTRIBUTION_ID --index-document index.html
 ibee cdn domains create DISTRIBUTION_ID static.example.com
-ibee cdn domains verify DISTRIBUTION_ID static.example.com
-ibee cdn purge DISTRIBUTION_ID --mode all
+ibee cdn domains verify DISTRIBUTION_ID static.example.com --wait
+ibee cdn purge DISTRIBUTION_ID --mode url --path /index.html --path /app.js
+ibee cdn purge DISTRIBUTION_ID --mode all --yes
 ibee cdn generate-url BUCKET_NAME path/to/object.jpg --expires-in 3600
 ibee cdn delete DISTRIBUTION_ID --yes
 
@@ -390,6 +397,58 @@ on) controls the read-only checks that need the current state.
   `firewalls list --summary`, `--include-deleted`, `--private-ip`, the forwarding
   `--target` options and the load-balancer policy, health-check and logs options
   are not yet part of the published API contract; behaviour may change.
+
+## Storage rules the CLI applies
+
+The Block Storage, Object Storage and CDN commands call the Python SDK, which applies
+the portal's rules before anything is sent; a broken rule exits 2. Where a command asks
+for confirmation, the read-only checks run first (`--no-check-state` skips them).
+
+- **Block Storage volumes**: names are 3-255 lowercase letters, numbers and hyphens
+  (the error suggests a valid name; nothing is renamed silently); sizes are whole GB,
+  10-10000 (the site's plan may allow only some sizes); volume IDs are 24 hexadecimal
+  characters. `create` reads the compute sites to fill the site name and rejects an
+  unknown `--site-id` (`--no-check-site` skips it). `--vm-type gpu` creates a volume
+  for GPU VMs: a volume attaches only to VMs of the type it was created for.
+- **Attach and detach** a volume to a server with `attach-vm` / `detach-vm` (or
+  `ibee vms|gpus volume-attach|volume-detach`). `attach-vm` reads the volume: it must
+  be unattached and idle, created for the VM's type (which picks the cloud or GPU
+  endpoint) and in the VM's site; the volume's Block Storage SKU is sent as the
+  billing catalog. `detach-vm` needs `--confirm-unmounted` (unmount inside the server
+  first) or `--force` (asks again), and finds the VM from the volume when omitted.
+  `--wait` polls like the portal: every 2 s, up to 120 s. `attach` and `detach` are
+  advanced storage-node commands that do not attach the disk to a VM.
+- **Resize** grows only; an attached volume needs `--vm-state stopped|suspended` or
+  `--allow-online`. Extend the filesystem inside the server afterwards.
+- **Delete** is refused while the volume is attached ("Detach this volume from all
+  servers before deleting.") or busy; `--force` detaches it everywhere and erases all
+  data (asks again).
+- **Buckets**: names are 3-63 lowercase letters, numbers and hyphens, starting and
+  ending with a letter or number (upper case is rejected, not lower-cased). A default
+  retention (`--retention-mode GOVERNANCE|COMPLIANCE` with `--retention-days 1-36500`
+  or `--retention-years 1-100`) switches Object Lock on. `--private` asks first because
+  it disables the public URL and deletes any CDN distribution using the bucket.
+  `delete` is refused for a bucket with Object Lock or with objects
+  (`--skip-preflight` skips the object count, which can lag).
+- **S3 credentials** default to `admin_rw` for all buckets; `--bucket-scope specific`
+  with `--allowed-bucket` is only for `object_rw`/`object_ro`. Names are 1-100
+  characters. The create is never retried, so the one-time secret cannot be lost.
+  `delete` (and `revoke`) permanently delete the credential.
+- **CDN**: distribution names are 1-128 characters and cache policies are
+  `static-assets`, `media`, `short` or `no-cache`. `create` checks that the origin
+  bucket is public (`--no-check-origin` skips it). Custom domains are lower-cased and
+  must include a subdomain; `domains create` prints the CNAME record to add, and
+  `domains verify --wait` checks every 15 s for up to 600 s (exit 1 when it fails, 3 on
+  timeout). `purge` needs `--mode`; `--mode all` asks first; only the selector for the
+  mode is accepted (`--path` 1-30, https URLs only; `--hostname`, `--tag`, `--prefix`
+  1-100). A purge the CDN reports as failed exits 1.
+- `--check-billing` (or `--preflight-billing`) checks OBJECTST-STD before a bucket or
+  S3 credential create and CUSTOMDO-STD before a custom domain.
+- `block-storage create --vm-type`/`--delete-on-termination`, the Block Storage delete
+  idempotency key, `cdn cache-policies` and `cdn metrics` are not yet part of the
+  published API contract; behaviour may change. Block Storage plans, bucket emptying,
+  CORS, lifecycle rules and object operations are not in the public API yet (use the
+  S3 endpoint with S3 credentials for objects).
 
 ## Global options
 

@@ -11,13 +11,17 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from click import unstyle
+from typing import List, Optional
+
+import typer
 from ibee.errors import error_from_response
+from typer.models import TyperInfo
 from typer.testing import CliRunner
 
 from ibee_cli import context, helpers
 from ibee_cli.commands import billing, firewalls, gpus, ops, vms
 from ibee_cli.main import app
-from ibee_cli.render import identifiers, to_yaml
+from ibee_cli.render import handle_api_errors, identifiers, print_json, to_yaml
 
 runner = CliRunner()
 BASE_ARGS = ["--token", "test-token", "--workspace", "973318"]
@@ -75,6 +79,45 @@ def http(monkeypatch):
 
     monkeypatch.setattr("ibee_cli.context.httpx.request", fake_request)
     return state
+
+
+# Every product command now calls the SDK, so direct gateway requests
+# (``context.api_request``) are exercised through a test-only ``probe`` command.
+probe_app = typer.Typer()
+
+
+@probe_app.command("call")
+@handle_api_errors
+def _probe_call(
+    ctx: typer.Context,
+    method: str,
+    path: str,
+    body: Optional[str] = typer.Option(None, "--body"),
+    param: Optional[List[str]] = typer.Option(None, "--param"),
+) -> None:
+    params = dict(item.split("=", 1) for item in param or []) or None
+    result = context.api_request(
+        context.get_settings(ctx), method, path, params=params, json_body=json.loads(body) if body else None
+    )
+    print_json(result)
+
+
+@pytest.fixture
+def probe(monkeypatch, http):
+    monkeypatch.setattr(app, "registered_groups", [*app.registered_groups, TyperInfo(probe_app, name="probe")])
+    return http
+
+
+def call(method, path, body=None, *params):
+    args = ["probe", "call", method, path]
+    if body is not None:
+        args += ["--body", json.dumps(body)]
+    for item in params:
+        args += ["--param", item]
+    return args
+
+
+CDN_BODY = {"name": "site-cdn", "origin_id": "bucket-1"}
 
 
 class FakeVms:
@@ -236,8 +279,9 @@ def test_invalid_ibee_env_exits_2(http):
          "http://localhost:8080/v1/"),
     ],
 )
-def test_endpoint_precedence(http, env, args, expected):
-    result = runner.invoke(app, [*BASE_ARGS, *args, "buckets", "list"], env=env)
+def test_endpoint_precedence(probe, env, args, expected):
+    http = probe
+    result = runner.invoke(app, [*BASE_ARGS, *args, *call("GET", "object-storage/buckets")], env=env)
     assert result.exit_code == 0, result.output
     assert http.calls[0]["url"].startswith(expected)
 
@@ -272,69 +316,76 @@ def test_token_environment_mismatch_exits_2(http, monkeypatch, token, args):
 # ---------------------------------------------------------------------------
 
 
-def test_get_is_retried_on_503_with_retry_after(http, no_sleep):
+def test_get_is_retried_on_503_with_retry_after(probe, no_sleep):
+    http = probe
     http.responses = [
         FakeResponse({"detail": "busy"}, 503, {"retry-after": "7"}),
         FakeResponse({"buckets": []}),
     ]
-    result = run([*GATEWAY, "buckets", "list"])
+    result = run([*GATEWAY, *call("GET", "object-storage/buckets")])
     assert result.exit_code == 0, result.output
     assert len(http.calls) == 2
     assert no_sleep == [7.0]
 
 
-def test_retry_after_is_capped_at_30_seconds(http, no_sleep):
+def test_retry_after_is_capped_at_30_seconds(probe, no_sleep):
+    http = probe
     http.responses = [FakeResponse({}, 429, {"Retry-After": "600"}), FakeResponse({"buckets": []})]
-    result = run([*GATEWAY, "buckets", "list"])
+    result = run([*GATEWAY, *call("GET", "object-storage/buckets")])
     assert result.exit_code == 0, result.output
     assert no_sleep == [30.0]
 
 
-def test_unkeyed_create_is_not_retried(http):
+def test_unkeyed_create_is_not_retried(probe):
+    http = probe
     http.responses = [FakeResponse({"detail": "upstream"}, 503)]
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
     assert result.exit_code == 1
     assert len(http.calls) == 1
     assert "Service error (503" in plain(result)
 
 
-def test_keyed_block_storage_write_is_retried_with_the_same_key(http):
+def test_keyed_block_storage_write_is_retried_with_the_same_key(probe):
+    http = probe
     http.responses = [FakeResponse({}, 502), FakeResponse({"volume_id": "vol-1"})]
-    result = run([*GATEWAY, "block-storage", "resize", "vol-1", "--new-size-gb", "20"])
+    body = {"new_size_gb": 20, "idempotency_key": helpers.new_idempotency_key("block-resize", "vol-1")}
+    result = run([*GATEWAY, *call("POST", "block-storage/volumes/vol-1/resize", body)])
     assert result.exit_code == 0, result.output
     assert len(http.calls) == 2
-    first, second = (call["json"]["idempotency_key"] for call in http.calls)
+    first, second = (item["json"]["idempotency_key"] for item in http.calls)
     assert first == second and first.startswith("cli-block-resize-vol-1-")
 
 
-def test_keyed_write_failure_prints_retry_hint(http):
+def test_keyed_write_failure_prints_retry_hint(probe):
+    http = probe
     http.responses = [FakeResponse({}, 504)] * 3
-    result = run(
-        [*GATEWAY, "block-storage", "resize", "vol-1", "--new-size-gb", "20", "--idempotency-key", "my-key-1"]
-    )
+    body = {"new_size_gb": 20, "idempotency_key": "my-key-1"}
+    result = run([*GATEWAY, *call("POST", "block-storage/volumes/vol-1/resize", body)])
     assert result.exit_code == 1
     assert len(http.calls) == 3
     assert "Retry safely with: --idempotency-key my-key-1" in plain(result)
 
 
 @pytest.mark.parametrize("status", [409, 500, 408])
-def test_non_retryable_statuses_are_not_retried(http, status):
+def test_non_retryable_statuses_are_not_retried(probe, status):
+    http = probe
     http.responses = [FakeResponse({"detail": "nope"}, status)]
-    result = run([*GATEWAY, "buckets", "list"])
+    result = run([*GATEWAY, *call("GET", "object-storage/buckets")])
     assert result.exit_code == 1
     assert len(http.calls) == 1
 
 
-def test_connect_error_is_retried_but_read_timeout_on_unkeyed_post_is_not(http):
+def test_connect_error_is_retried_but_read_timeout_on_unkeyed_post_is_not(probe):
+    http = probe
     request = httpx.Request("POST", "https://gateway.example/v1/cdn/distributions")
     http.responses = [httpx.ConnectError("refused", request=request), FakeResponse({"id": "rip-1"})]
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
     assert result.exit_code == 0, result.output
     assert len(http.calls) == 2
 
     http.calls.clear()
     http.responses = [httpx.ReadTimeout("slow", request=request)]
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
     assert result.exit_code == 1
     assert len(http.calls) == 1
     assert "Connection error" in plain(result)
@@ -356,14 +407,16 @@ def test_connect_error_is_retried_but_read_timeout_on_unkeyed_post_is_not(http):
         (429, {"detail": "slow down"}, "Rate limited (429)"),
     ],
 )
-def test_typed_error_messages(http, status, body, expected):
+def test_typed_error_messages(probe, status, body, expected):
+    http = probe
     http.responses = [FakeResponse(body, status)] * 3
-    result = run([*GATEWAY, "buckets", "create", "b1", "--region", "r1"])
+    result = run([*GATEWAY, *call("POST", "object-storage/buckets", {"name": "b1", "region": "r1"})])
     assert result.exit_code == 1
     assert expected in plain(result)
 
 
-def test_edge_billing_denial_prints_portal_copy_and_topup(http):
+def test_edge_billing_denial_prints_portal_copy_and_topup(probe):
+    http = probe
     http.responses = [
         FakeResponse(
             {
@@ -375,7 +428,7 @@ def test_edge_billing_denial_prints_portal_copy_and_topup(http):
             402,
         )
     ]
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
     assert result.exit_code == 1
     output = plain(result)
     assert "Your available wallet balance does not cover this CDN distribution" in output
@@ -384,15 +437,17 @@ def test_edge_billing_denial_prints_portal_copy_and_topup(http):
     assert "Add credits in the IBEE portal" in output
 
 
-def test_service_error_shows_request_id(http):
+def test_service_error_shows_request_id(probe):
+    http = probe
     http.responses = [FakeResponse({"detail": "boom"}, 502, {"x-request-id": "req-42"})]
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1"])
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
     assert result.exit_code == 1
     assert "request_id=req-42" in plain(result)
 
 
-def test_oversized_billable_create_body_is_rejected_before_sending(http):
-    result = run([*GATEWAY, "cdn", "create", "site-cdn", "--origin-id", "bucket-1", "--cache-policy", "x" * 70000])
+def test_oversized_billable_create_body_is_rejected_before_sending(probe):
+    http = probe
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", {**CDN_BODY, "cache_policy": "x" * 70000})])
     assert result.exit_code == 2
     assert "65536-byte limit" in plain(result)
     assert http.calls == []
@@ -432,22 +487,6 @@ def test_generated_keys_use_the_portal_format():
     assert key.startswith("cli-vm-create-myweb01-")
     assert re.fullmatch(r"[A-Za-z0-9_-]{1,128}", key)
     assert helpers.new_idempotency_key("x", "a") != helpers.new_idempotency_key("x", "a")
-
-
-def test_block_storage_delete_sends_query_idempotency_key(http):
-    result = run([*GATEWAY, "block-storage", "delete", "vol-1", "--yes", "--idempotency-key", "del-1"])
-    assert result.exit_code == 0, result.output
-    assert http.calls[0]["params"]["idempotency_key"] == "del-1"
-    assert http.calls[0]["params"]["force"] is False
-
-
-def test_block_storage_create_uses_explicit_key(http):
-    result = run(
-        [*GATEWAY, "block-storage", "create", "data", "--size-gb", "10", "--site-id", "s1",
-         "--idempotency-key", "create-1"]
-    )
-    assert result.exit_code == 0, result.output
-    assert http.calls[0]["json"]["idempotency_key"] == "create-1"
 
 
 # ---------------------------------------------------------------------------
@@ -649,18 +688,17 @@ def test_check_billing_falls_back_to_check_with_exact_true_gate():
     assert [name for name, _ in billing_fake.calls] == ["check"]
 
 
-def test_check_billing_on_direct_gateway_create(monkeypatch, http):
+def test_preflight_create_uses_require_eligibility():
+    from ibee.errors import BillingDeniedError
+
     calls = []
-    monkeypatch.setattr(
-        context, "get_client", lambda _settings: SimpleNamespace(billing=RequireBilling(calls, allowed=False,
-                                                                                         reason="unknown_sku"))
-    )
-    result = runner.invoke(app, [*BASE_ARGS, *GATEWAY, "--check-billing", "cdn", "create", "site-cdn",
-                                 "--origin-id", "bucket-1"])
-    assert result.exit_code == 1
-    assert "could not be verified" in plain(result)
+    client = SimpleNamespace(billing=RequireBilling(calls, allowed=False, reason="unknown_sku"))
+    settings = SimpleNamespace(check_billing=True, workspace="973318")
+    with pytest.raises(BillingDeniedError) as info:
+        helpers.preflight_create(settings, "cdn", client=client)
+    assert "could not be verified" in str(info.value)
     assert calls[0][1]["resource_type"] == "cdn"
-    assert http.calls == []
+    assert helpers.preflight_create(SimpleNamespace(check_billing=False), "cdn") is None
 
 
 def test_billing_eligibility_operation_and_table(monkeypatch):
