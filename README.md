@@ -43,20 +43,34 @@ ibee buckets credentials create \
 ibee buckets credentials get ACCESS_KEY_ID
 ibee buckets credentials delete ACCESS_KEY_ID --yes           # permanent (alias: revoke)
 
-# Secret Store — stores
-ibee secrets stores list
-ibee secrets stores create production-secrets --description "prod"
+# Secret Store — stores (archived stores are listed too; --active-only hides them)
+ibee secrets stores list [--active-only] [--page N --limit N | --all]
+ibee secrets stores create production-secrets --description "prod" [--if-exists reuse]
 ibee secrets stores get STORE_ID
 ibee secrets stores update STORE_ID --name renamed
 ibee secrets stores archive STORE_ID --yes
+ibee secrets stores unarchive STORE_ID [--yes]
+ibee secrets stores delete-permanent STORE_ID --yes
 
 # Secret Store — secrets
-ibee secrets list --store-id STORE_ID
+ibee secrets list --store-id STORE_ID [--query db] [--all]
 ibee secrets create --store-id STORE_ID --name db-url --value '{"url":"postgres://..."}'
+ibee secrets batch-create --store-id STORE_ID --file secrets.json   # any size; split into 500-item / 64 KiB requests
 ibee secrets get SECRET_ID           # metadata
 ibee secrets value SECRET_ID         # current value
-ibee secrets set-value SECRET_ID --value '{"url":"postgres://new"}'
+ibee secrets set-value SECRET_ID --value '{"url":"postgres://new"}' [--cas 3]
+ibee secrets patch-value SECRET_ID --value '{"old_key":null,"new_key":"x"}'
+ibee -o table secrets versions SECRET_ID
+ibee secrets rollback SECRET_ID --version 2
 ibee secrets delete SECRET_ID --yes
+ibee secrets undelete SECRET_ID      # restores the current version
+
+# Secret Store — application identities and their store access
+ibee secrets identities create --store-id STORE_ID --name worker --auth-method approle
+ibee secrets identities access IDENTITY_ID --show-sensitive
+ibee secrets identities rotate-secret-id IDENTITY_ID --show-sensitive
+ibee secrets identities scopes create IDENTITY_ID --store-id OTHER_STORE_ID \
+  --access-mode read_write --allow-rollback
 
 # Compute catalog (discover placement / plans / images for `create`)
 ibee compute sites
@@ -449,6 +463,63 @@ for confirmation, the read-only checks run first (`--no-check-state` skips them)
   published API contract; behaviour may change. Block Storage plans, bucket emptying,
   CORS, lifecycle rules and object operations are not in the public API yet (use the
   S3 endpoint with S3 credentials for objects).
+
+## Secret Store rules the CLI applies
+
+Every `ibee secrets` command runs the Python SDK's Secret Store rules before it sends
+anything (exit 2 when a rule fails); commands that ask for confirmation check their
+inputs first.
+
+- **Workspace and ids**: Secret Store needs a workspace id of 2-128 digits. Store,
+  secret, identity and scope ids must not contain `/`, `?`, `#` or control characters.
+- **Stores**: names are trimmed, 1-128 characters, and need at least one letter or
+  digit. `stores list` includes archived stores (as the portal does) and asks for 100
+  per page; it prints a hint when there are more (`--page`, `--limit` 1-200, `--all`).
+  `stores create --if-exists reuse` returns the existing store with the same name or
+  store key instead of failing with 409. `archive` and `unarchive` read the store
+  first (`--no-check-state` skips it): an already archived or active store is left
+  alone, and a store being deleted is refused. `unarchive`, `identities disable` and
+  `identities enable` ask for confirmation only on a terminal, so scripts keep working.
+  A permanent store delete the API reports as incomplete (503) lists the failed steps;
+  run the same command again to finish it.
+- **Secrets**: names are trimmed and lower-cased, as in the portal, then must be 2-64
+  lowercase letters, digits and hyphens starting with a letter or digit. Values need
+  at least one key; keys are trimmed and must not be blank or collide; empty string
+  values are refused. In `patch-value`, a JSON `null` deletes that key. `--cas` is an
+  integer >= 0; a check-and-set mismatch is reported as a conflict and never retried.
+  `list` sends a trimmed `--query` (at most 128 characters) only when it is not blank.
+- **Billing**: `stores create` and `secrets create` check SECRETMA-STD eligibility
+  first, as the portal does (`--no-billing-check` turns it off; the global
+  `--check-billing` forces it on). When the token lacks `billing.read` the check is
+  skipped with a warning, because the API still enforces billing on the create.
+- **Batch create**: every item follows the `secrets create` rules and the error names
+  its index. Duplicate names are reported (the API skips them). A file with more than
+  500 secrets or over 64 KiB is sent as consecutive requests and the results are
+  merged; the command exits 1 when any secret failed.
+- **Versions**: version lists hold 1-100 integers >= 1 and are de-duplicated.
+  `rollback` reads the versions first and refuses the current, an unknown or a
+  destroyed version (`--no-check-state` skips the check). `undelete` without
+  `--versions` restores the current version, the one `delete` soft-deletes.
+  `-o table secrets versions` lists versions newest first as active, available,
+  soft_deleted or destroyed.
+- **Identities**: names are trimmed, 1-128 characters. `--token-policy-mode` is always
+  sent (default `read_only`). Kubernetes identities need both `--k8s-namespace` and
+  `--k8s-service-account` (trimmed); AppRole identities must not have them.
+  `identities update` warns that every scope is rewritten and sessions are revoked.
+  `rotate-secret-id` reads the identity first and refuses anything but an active
+  AppRole identity. `access` and `rotate-secret-id` print credentials and are never
+  retried: each AppRole call issues a new secret ID and the old one is not revoked.
+- **Scopes**: `scopes create` allows version reads by default (as the portal and the
+  API do; `--deny-version-read` turns it off). A `read_only` scope cannot allow
+  rollback or destroy. Unless `--no-check-state`, the identity, its scopes and the
+  stores are read first: the store must be active and not already granted, and a
+  `read_only` identity gets `read_only` access only.
+- **Errors**: a missing store, secret, identity or scope (reported by the API as 403
+  "does not belong to workspace") is printed as not found; organization lifecycle
+  denials name the state and the operation; archived or inactive stores, disabled
+  identities and soft-deleted values print what to do next.
+- Workload runtime access (AppRole or Kubernetes login and runtime secret reads) is
+  not in the public API yet.
 
 ## Global options
 

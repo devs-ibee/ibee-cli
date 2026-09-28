@@ -30,14 +30,19 @@ from ibee.errors import (
     ApiKeyInactiveError,
     BillingDeniedError,
     BillingForbiddenError,
+    CasConflictError,
     CdnPurgeFailedError,
+    DeletionIncompleteError,
     InsufficientScopeError,
     OperationFailedError,
     OperationTimeoutError,
+    OrganizationLifecycleError,
     OrganizationRestrictedError,
     OrganizationSuspendedError,
     ReservedIpTargetUnsupportedError,
     ResizeBlockedError,
+    ResourceNotFoundError,
+    SecretValueNotFoundError,
     WorkspaceNotAllowedError,
 )
 from ibee.validation import IbeeValidationError
@@ -386,7 +391,48 @@ def _billing_message(exc: ApiError) -> list[str]:
 
 
 def api_error_lines(exc: ApiError) -> list[str]:
-    """Human-readable lines describing an API error."""
+    """Human-readable lines describing an API error, plus the SDK's hint when it has one."""
+    lines = _api_error_lines(exc)
+    hint = getattr(exc, "hint", None)
+    if isinstance(hint, str) and hint and not isinstance(
+        exc, (CasConflictError, DeletionIncompleteError, ResourceNotFoundError)
+    ):
+        lines.append(f"  hint: {hint}")
+    return lines
+
+
+def _secret_store_error_lines(exc: ApiError, message: str) -> Optional[list[str]]:
+    """Secret Store errors that need more than the generic status line."""
+    if isinstance(exc, CasConflictError):
+        return [
+            "Check-and-set conflict (502): the secret's current version differs from --cas.",
+            "  Run 'ibee secrets versions SECRET_ID' and retry with the current version.",
+        ]
+    if isinstance(exc, DeletionIncompleteError):
+        steps = ", ".join(str(step) for step in getattr(exc, "failed_steps", None) or []) or "unknown"
+        return [
+            f"Deletion incomplete (503): {message}",
+            f"  failed steps: {steps}",
+            "  The store stays in 'deleting'; run the same command again to finish the deletion.",
+        ]
+    if isinstance(exc, OrganizationLifecycleError):
+        state = getattr(exc, "state", None) or "restricted"
+        operation = getattr(exc, "operation", None) or "this"
+        return [f"Forbidden (403): the organization is {state}, so {operation} operations are not allowed."]
+    if isinstance(exc, ResourceNotFoundError):
+        kind = (getattr(exc, "kind", None) or "resource").capitalize()
+        ident = getattr(exc, "resource_id", None)
+        what = f"{kind} '{ident}'" if ident else kind
+        return [
+            f"Not found (403): {what} does not exist or belongs to a different workspace. "
+            "Verify --workspace or IBEE_WORKSPACE_ID matches the workspace used when it was created."
+        ]
+    if isinstance(exc, SecretValueNotFoundError):
+        return [f"Not found (404): {message}"]
+    return None
+
+
+def _api_error_lines(exc: ApiError) -> list[str]:
     status = exc.status_code
     message = _body_text(exc)
     lowered = message.lower() + " " + str(getattr(exc, "body", "")).lower()
@@ -397,6 +443,9 @@ def api_error_lines(exc: ApiError) -> list[str]:
             "  Nothing was purged. Prefix and tag purges may not be available for this distribution; "
             "try --mode url or --mode all.",
         ]
+    secret_store = _secret_store_error_lines(exc, message)
+    if secret_store is not None:
+        return secret_store
     if status == 401:
         return ["Unauthorized (401): the API token is invalid, revoked, or for the other environment."]
     if status == 402 or isinstance(exc, BillingDeniedError):

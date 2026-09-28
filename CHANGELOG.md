@@ -114,6 +114,23 @@ Requires `ibee>=0.4.0,<0.5.0`.
     --check-origin/--no-check-origin --preflight-billing`; `cdn domains create
     --preflight-billing`; `cdn domains verify --wait --timeout --poll-interval`;
     `cdn purge --yes`; `cdn list -o table`.
+- Secret Store (every command applies the Python SDK's Secret Store rules first; see
+  "Secret Store rules the CLI applies" in the README):
+  - `secrets stores list --include-archived/--active-only --page --limit --all`
+    (archived stores are listed by default, 100 per page, as in the portal).
+  - `secrets stores create --billing-check/--no-billing-check --if-exists
+    error|reuse`; `secrets create --billing-check/--no-billing-check`.
+  - `secrets stores unarchive --yes`, `secrets identities disable --yes` and
+    `secrets identities enable --yes` (they ask only on a terminal).
+  - `--check-state/--no-check-state` on `secrets stores archive`, `unarchive` and
+    `delete-permanent`, `secrets delete` and `delete-permanent`, `secrets rollback`,
+    `secrets identities rotate-secret-id` and `secrets identities scopes create`.
+  - `secrets list --query/-q --page --limit --all`.
+  - `secrets identities scopes create --allow-version-read/--deny-version-read`.
+  - `-o table secrets versions` (newest first, with the portal's version state).
+  - Clear messages for Secret Store errors: lifecycle denials, missing resources,
+    archived or inactive stores, disabled identities, soft-deleted values,
+    check-and-set conflicts and incomplete store deletions.
 
 ### Changed
 
@@ -220,3 +237,27 @@ Requires `ibee>=0.4.0,<0.5.0`.
   has no website configuration. Custom domains are lower-cased; `cdn domains create`
   prints the CNAME record to add; `cdn domains verify` explains a pending status.
   `cdn delete` and `cdn domains delete` confirmations describe the side effects.
+- Secret Store:
+  - `secrets stores create` and `secrets create` check SECRETMA-STD billing
+    eligibility first, as the portal does (skipped with a warning when the token lacks
+    `billing.read`; `--no-billing-check` turns it off).
+  - `secrets stores list` includes archived stores and asks for 100 per page (it
+    showed active stores only, 50 at most). `secrets list` asks for 100 per page and
+    shows the secret name (the 0.3.0 table read a field that does not exist).
+  - `secrets identities scopes create` now allows version reads by default, matching
+    the portal and the API (it sent `allow_version_read=false`).
+  - Secret names are trimmed and lower-cased before sending; names, values, version
+    lists, `--cas`, identities and scope permission combinations are checked before
+    any request (exit 2).
+  - `secrets batch-create` accepts files of any size (split into requests of at most
+    500 secrets and 64 KiB), checks every item, reports skipped and failed secrets and
+    exits 1 when any failed.
+  - `secrets undelete --versions` is optional (default: the current version).
+  - `secrets rollback`, `secrets identities rotate-secret-id` and `secrets identities
+    scopes create` read first and refuse what the portal does not offer (rolling back
+    to the current or a destroyed version; rotating a Kubernetes or disabled identity;
+    granting a store that is inactive or already granted).
+  - `secrets stores archive` and `unarchive` leave an already archived or active store
+    alone. Confirmation prompts use the portal's wording, and archive, unarchive,
+    delete and several identity commands print their result with `-o json|yaml|id`.
+  - A 403 "does not belong to workspace" from Secret Store is printed as not found.
