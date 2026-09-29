@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.1
+
+- VM preflight checks Billing account status without a client-calculated price or
+  a SKU-only monthly-price probe. Selected-term pricing and affordability are
+  decided by upstream services when create is submitted.
+- Preserve upstream denials, the selected catalog term, and one create attempt.
+- Require Python SDK 0.4.1; publish that dependency before this CLI release.
+
 ## 0.4.0
 
 Requires `ibee>=0.4.0,<0.5.0`.

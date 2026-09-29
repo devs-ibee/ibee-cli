@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from ibee_cli.commands import billing, secrets
+from ibee_cli.commands import billing, secrets, vm_lifecycle, vms, gpus
 from ibee_cli.main import app
 
 import _net_fixtures as _net
@@ -57,6 +57,44 @@ def test_manual_billing_command_reports_old_sdk(monkeypatch):
     result = runner.invoke(app, [*BASE_ARGS, "billing", "eligibility"])
     assert result.exit_code == 1
     assert "Upgrade the SDK" in result.output
+
+
+@pytest.mark.parametrize("group,family", [("vms", "cloud"), ("gpus", "gpu")])
+@pytest.mark.parametrize("denied", [False, True])
+def test_vm_preflight_uses_upstream_status_and_preserves_create_denial(gw, monkeypatch, group, family, denied):
+    for module in (vm_lifecycle, vms, gpus):
+        monkeypatch.setattr(module, "get_client", lambda _settings: gw.client())
+    gw.on("GET", "compute/plans", {"plans": [{
+        "plan_id": "plan", "vm_type": family, "selectable": True, "pricing_status": "priced",
+        "cpu": 2, "ram_mb": 4096, "disk_gb": 50, "gpu_count": 1, "gpu_model": "L4",
+        "billing_catalog": {"sku_id": 1, "sku_code": "VM-1", "billing_options": [
+            {"billing_interval": "HOURLY", "unit_price_minor": 3500, "committed": False},
+        ]},
+    }]})
+    gw.on("GET", "compute/images", {"images": [{
+        "template_id": "image", "os_type": "linux", "os_distro": "ubuntu",
+        "gpu_compatible": True, "compatible_vm_types": [family], "site_ids": [],
+    }]})
+    gw.on("POST", "billing/resource-eligibility", {
+        "organization_id": "org", "allowed": True, "reason": "status_only",
+        "effective_balance_minor": 3500,
+    })
+    response = (402, {"error": "billing_denied", "billing_reason": "insufficient_balance",
+                      "billing_sku_code": "VM-1", "admission_context_id": "adm_upstream"}) if denied else (202, {
+        "operation_id": "op_65f0c0ffee0000000000abcd", "vm_id": "65f0c0ffee0000000000abcd",
+        "status": "accepted", "submitted_at": "2026-09-29T00:00:00Z",
+    })
+    gw.on("POST", f"compute/{family}-vms", response)
+    result = runner.invoke(app, [*BASE_ARGS, "--check-billing", group, "create", "test",
+                                "--site-id", "site-1", "--plan-id", "plan", "--template-id", "image",
+                                "--billing-term", "HOURLY"])
+    assert result.exit_code == (1 if denied else 0), result.output
+    assert gw.last("POST", "billing/resource-eligibility").json == {}
+    creates = [c for c in gw.calls if c.method == "POST" and c.path == f"compute/{family}-vms"]
+    assert len(creates) == 1
+    assert creates[0].json["billing_catalog"]["billing_interval"] == "HOURLY"
+    if denied:
+        assert "balance" in result.output.lower()
 
 
 @pytest.mark.parametrize(
