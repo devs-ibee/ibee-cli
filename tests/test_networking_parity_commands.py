@@ -302,7 +302,8 @@ def test_nat_create_global_check_billing_denial(gw):
     gw.on("POST", f"{V}/nat-gateways", (402, {"error": "billing_denied", "billing_reason": "insufficient_balance"}))
     result = run(["--check-billing", "vpcs", "nat", "create", "vpc-1", "--billing-catalog", json.dumps(NAT_CATALOG)])
     assert result.exit_code == 1, result.output
-    assert "Add credits" in plain(result)
+    assert "Review billing for available actions" in plain(result)
+    assert "add credits" not in plain(result).lower()
     assert not gw.requests("POST")[1:]
 
 
@@ -558,7 +559,8 @@ def test_reserve_ip_edge_denial_names_the_reserved_ip(gw):
     result = run(["reserved-ips", "reserve", "--site-id", "site-1"])
     assert result.exit_code == 1
     assert "does not cover this Reserved IP" in plain(result)
-    assert "Add credits in the IBEE portal" in plain(result)
+    assert "Review billing for available actions" in plain(result)
+    assert "add credits" not in plain(result).lower()
 
 
 def test_convert_runs_billing_check_by_default(gw):

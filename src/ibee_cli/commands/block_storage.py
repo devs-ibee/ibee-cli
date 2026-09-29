@@ -47,7 +47,6 @@ from ..helpers import (
     idempotency_key_option,
     load_json_input,
     poll_interval_option,
-    preflight_billing,
     resolve_idempotency_key,
     resolve_wait,
     timeout_option,
@@ -264,7 +263,7 @@ def create_volume(
 
     settings, workspace, client = _session(ctx)
     key = resolve_idempotency_key(idempotency_key, "block-create", name)
-    # Validate first (exit 2) so a bad request never reaches the billing preflight.
+    # Validate first (exit 2) so a bad request never reaches the API.
     body = build_block_volume_create_body(
         name=name,
         size_gb=size_gb,
@@ -277,10 +276,6 @@ def create_volume(
         vm_type=vm_type,
         delete_on_termination=delete_on_termination,
     )
-    if settings.check_billing:
-        preflight_billing(
-            settings, client, workspace, sku_code=body.get("sku_code"), resource_type="block_storage"
-        )
     try:
         with api_hints({400: CREATE_PLAN_HINT}):
             result = client.block_storage.create_block_volume(

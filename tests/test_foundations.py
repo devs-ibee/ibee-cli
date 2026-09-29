@@ -14,6 +14,7 @@ from click import unstyle
 from typing import List, Optional
 
 import typer
+from ibee.billing import TOPUP_GUIDANCE
 from ibee.errors import error_from_response
 from typer.models import TyperInfo
 from typer.testing import CliRunner
@@ -434,7 +435,34 @@ def test_edge_billing_denial_prints_portal_copy_and_topup(probe):
     assert "Your available wallet balance does not cover this CDN distribution" in output
     assert "reason=insufficient_balance" in output
     assert "admission_context_id=adm-9" in output
-    assert "Add credits in the IBEE portal" in output
+    assert "Review billing for available actions" in output
+    assert "add credits" not in output.lower()
+
+
+def test_edge_billing_denial_topup_guidance_follows_allowed_operations(probe):
+    http = probe
+    denial = {
+        "error": "billing_denied",
+        "billing_reason": "insufficient_balance",
+        "billing_sku_code": "CDN-1",
+        "admission_context_id": "adm-9",
+    }
+    http.responses = [FakeResponse({**denial, "allowed_operations": ["billing_topup"]}, 402)]
+    result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
+    assert result.exit_code == 1
+    output = plain(result)
+    assert "Your available wallet balance does not cover this CDN distribution" in output
+    assert "You can add credits in the IBEE portal" in output
+    assert TOPUP_GUIDANCE in output
+
+    for extra in ({}, {"allowed_operations": ["billing_review"]}):
+        http.responses = [FakeResponse({**denial, **extra}, 402)]
+        result = run([*GATEWAY, *call("POST", "cdn/distributions", CDN_BODY)])
+        assert result.exit_code == 1
+        output = plain(result)
+        assert "reason=insufficient_balance" in output
+        assert "add credits" not in output.lower()
+        assert TOPUP_GUIDANCE not in output
 
 
 def test_service_error_shows_request_id(probe):
@@ -673,8 +701,10 @@ def test_check_billing_denial_blocks_create(monkeypatch):
     result = run(CREATE_ARGS, env={"IBEE_CHECK_BILLING": "1"})
     assert result.exit_code == 1
     output = plain(result)
-    assert "Add at least ₹2,000 to your wallet before creating your first cloud VM." in output
-    assert "Add credits in the IBEE portal" in output
+    assert "Billing requires an initial wallet top-up before creating your first cloud VM." in output
+    assert "Review billing for available actions" in output
+    assert "₹" not in output
+    assert "add credits" not in output.lower()
 
 
 def test_check_billing_falls_back_to_check_with_exact_true_gate():
@@ -721,7 +751,8 @@ def test_billing_eligibility_require_exit_codes(monkeypatch):
     assert run(["billing", "eligibility"]).exit_code == 0
     result = run(["billing", "eligibility", "--require"])
     assert result.exit_code == 1
-    assert "Add credits in the IBEE portal" in plain(result)
+    assert "Review billing for available actions" in plain(result)
+    assert "add credits" not in plain(result).lower()
 
     billing_fake.decision = {"allowed": True, "reason": "ok"}
     assert run(["billing", "eligibility", "--require"]).exit_code == 0
