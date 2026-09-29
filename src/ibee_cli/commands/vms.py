@@ -103,7 +103,7 @@ def create_vm(
     ram_mb: Optional[int] = typer.Option(None, "--ram-mb", help="RAM in MB (default: the plan's; must match it)"),
     disk_gb: Optional[int] = typer.Option(None, "--disk-gb", help="Root disk in GB (default: the plan's; must match it)"),
     billing_term: Optional[str] = typer.Option(
-        None, "--billing-term", help="Deprecated no-op; upstream decides billing and lifecycle admission." + ", ".join(BILLING_TERMS) + " (default HOURLY, or the plan's first term)"
+        None, "--billing-term", help="Billing term sent to the API: " + ", ".join(BILLING_TERMS) + " (default HOURLY, or the plan's first term); admission is decided upstream"
     ),
     windows_license: Optional[str] = typer.Option(
         None,

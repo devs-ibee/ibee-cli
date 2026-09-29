@@ -996,8 +996,7 @@ def create_secret(
     billing_check: bool = typer.Option(
         True,
         "--billing-check/--no-billing-check",
-        help="Deprecated no-op; upstream decides billing and lifecycle admission."
-        "",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Create a secret in an active store."""

@@ -397,8 +397,8 @@ on) controls the read-only checks that need the current state.
   253 characters (`--reverse-dns ""` clears it); `release` is refused while
   attached; `attach` is for unattached IPs (`move` for an IP on another VM,
   `--detach-from-service` for one on a NAT gateway or virtual IP); an attach to a VM
-  outside a VPC points at `reserved-ips convert`. `convert` runs the RESERVED-IP
-  billing check first (`--no-billing-check` skips it; it needs `billing.read`).
+  outside a VPC points at `reserved-ips convert`. The API decides admission for
+  `convert`.
 - **Firewalls**: group names are unique in any case (1-120 characters) and
   customers cannot create default groups. Rules: tcp and udp need `--port` (22 or
   8000-8080), icmp and any take none; sources are IPv4 addresses or CIDRs (a bare

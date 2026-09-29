@@ -43,7 +43,7 @@ jobs:
 
       - name: Install SDK 0.4.2 candidate for the paired policy PR
         if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-billing-policy-042'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@3f1aeb9f36079d83be97e57ba800f93447a3524d"
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9636bd427edf172a98a70ba38d82bf30dd5311c8"
 
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
