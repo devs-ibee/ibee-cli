@@ -151,7 +151,7 @@ def create_gpu_vm(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check billing eligibility for the plan SKU first (same as the global --check-billing)",
+        help="Check Billing account status first; upstream create decides affordability (same as --check-billing)",
     ),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is provisioned"),
     timeout: Optional[float] = timeout_option(),
