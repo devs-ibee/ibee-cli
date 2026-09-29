@@ -291,16 +291,15 @@ def test_nat_create_warns_without_catalog_and_runs_preflight(gw):
     result = ok(run(["vpcs", "nat", "create", "vpc-1", "--preflight"]))
     assert "not be metered" in plain(result)
     assert [(c.method, c.path) for c in gw.writes()] == [
-        ("POST", "billing/resource-eligibility"),
         ("POST", f"{V}/nat-gateways"),
     ]
-    assert gw.writes()[0].json == {"sku_code": "NAT-GATEWAY"}
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
     assert gw.last("POST", f"{V}/nat-gateways").json == {"name": "NAT Gateway"}
 
 
 def test_nat_create_global_check_billing_denial(gw):
     gw.on("GET", V, vpc())
-    gw.on("POST", "billing/resource-eligibility", decision("NAT-GATEWAY", False, "insufficient_balance"))
+    gw.on("POST", f"{V}/nat-gateways", (402, {"error": "billing_denied", "billing_reason": "insufficient_balance"}))
     result = run(["--check-billing", "vpcs", "nat", "create", "vpc-1", "--billing-catalog", json.dumps(NAT_CATALOG)])
     assert result.exit_code == 1, result.output
     assert "Add credits" in plain(result)
@@ -532,7 +531,7 @@ def test_reserve_ip_body_and_billing_check(gw):
     result = ok(run(["reserved-ips", "reserve", "--site-id", " site-1 ", "--label", "  edge  ", "--billing-catalog",
                      json.dumps({**RIP_CATALOG, "billing_options": [1]}), "--check-billing"]))
     assert json.loads(result.output)["public_ip_id"] == "rip-1"
-    assert gw.writes()[0].json == {"sku_code": "RESERVED-IP"}
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
     assert gw.last("POST", "networking/reserved-ips").json == {
         "site_id": "site-1",
         "label": "edge",
@@ -566,7 +565,7 @@ def test_convert_runs_billing_check_by_default(gw):
     gw.on("POST", "billing/resource-eligibility", decision("RESERVED-IP"))
     gw.on("POST", "networking/reserved-ips/convert", rip(allocation_method="converted"))
     ok(run(["reserved-ips", "convert", "--vm-id", "vm-1", "--site-id", "site-1", "--label", "web"]))
-    assert [c.path for c in gw.writes()] == ["billing/resource-eligibility", "networking/reserved-ips/convert"]
+    assert [c.path for c in gw.writes()] == ["networking/reserved-ips/convert"]
     assert gw.last("POST", "networking/reserved-ips/convert").json == {
         "vm_id": "vm-1", "site_id": "site-1", "label": "web"
     }
@@ -576,10 +575,10 @@ def test_convert_runs_billing_check_by_default(gw):
 
 
 def test_convert_billing_denial_stops_before_convert(gw):
-    gw.on("POST", "billing/resource-eligibility", decision("RESERVED-IP", False, "initial_topup_required"))
+    gw.on("POST", "networking/reserved-ips/convert", (402, {"error": "billing_denied", "billing_reason": "initial_topup_required"}))
     result = run(["reserved-ips", "convert", "--vm-id", "vm-1", "--site-id", "site-1"])
     assert result.exit_code == 1
-    assert [c.path for c in gw.writes()] == ["billing/resource-eligibility"]
+    assert [c.path for c in gw.writes()] == ["networking/reserved-ips/convert"]
 
 
 def test_release_refuses_while_attached(gw):
@@ -770,7 +769,7 @@ def test_create_l7_rules_sticky_and_billing_check(gw):
     ok(run(["--check-billing", "load-balancers", "create-l7", "web", "--protocol", "https", "--backend",
             "service:api:8080", "--sticky-header", "X-User-ID", "--rule", "1:/", "--rule", "2:/api:X-Env=beta",
             "--health-check-path", "/ready"]))
-    assert gw.writes()[0].json == {"sku_code": "LOADBALA-STD"}
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
     body = gw.last("POST", f"{LB}/l7").json
     assert body["routing"] == {"sticky_header": "X-User-ID"}
     assert body["rules"] == [

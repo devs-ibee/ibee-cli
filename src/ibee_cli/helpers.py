@@ -2,8 +2,8 @@
 
 Compute writes (VM create/delete/power, access, resize, and volume actions)
 return `202 + operation_id`; these helpers build idempotency keys, optionally
-poll the operation to a terminal state (`--wait`), run the optional billing
-preflight (`--check-billing`), ask for confirmation of destructive actions,
+poll the operation to a terminal state (`--wait`), retain deprecated no-op billing
+flags, ask for confirmation of destructive actions,
 and parse structured values from the command line.
 """
 
@@ -549,36 +549,8 @@ def preflight_billing(
     estimated_cost_minor: Optional[int | float] = None,
     resource_type: str = "resource",
 ) -> Any:
-    """Portal billing preflight before a billable create, when ``--check-billing`` is set.
-
-    Without ``--check-billing`` (or ``IBEE_CHECK_BILLING``) nothing is called, so a
-    create stays a single request and the API edge alone decides admission. With it,
-    the create continues only when billing answers ``allowed`` exactly ``true``;
-    otherwise ``BillingDeniedError`` is raised (printed with the portal wording, exit 1).
-    """
-
-    if not getattr(settings, "check_billing", False):
-        return None
-    billing = getattr(client, "billing", None)
-    require = getattr(billing, "require_resource_eligibility", None)
-    if callable(require):
-        kwargs: dict[str, Any] = {"workspace_id": workspace_id, "resource_type": resource_type}
-        sku = normalize_sku_code(sku_code)
-        if sku:
-            kwargs["sku_code"] = sku
-        cost = normalize_estimated_cost_minor(estimated_cost_minor)
-        if cost is not None:
-            kwargs["estimated_cost_minor"] = cost
-        return require(**kwargs)
-    decision = check_billing_eligibility(
-        client,
-        workspace_id,
-        sku_code=sku_code,
-        estimated_cost_minor=estimated_cost_minor,
-    )
-    if _field(decision, "allowed") is not True:
-        raise BillingDeniedError(decision=decision, create_type=resource_type)
-    return decision
+    """Deprecated compatibility no-op; the mutation endpoint decides admission."""
+    return None
 
 
 def preflight_create(
@@ -589,24 +561,8 @@ def preflight_create(
     sku_code: Optional[str] = None,
     estimated_cost_minor: Optional[int | float] = None,
 ) -> Any:
-    """``preflight_billing`` for a billable create command, building the client on demand.
-
-    Does nothing (and sends nothing) unless ``--check-billing``/``IBEE_CHECK_BILLING`` is set.
-    """
-
-    if not getattr(settings, "check_billing", False):
-        return None
-    from .context import get_client, require_workspace
-
-    workspace = require_workspace(settings)
-    return preflight_billing(
-        settings,
-        client if client is not None else get_client(settings),
-        workspace,
-        sku_code=sku_code,
-        estimated_cost_minor=estimated_cost_minor,
-        resource_type=resource_type,
-    )
+    """Deprecated compatibility no-op; no client or workspace is resolved."""
+    return None
 
 
 # ---------------------------------------------------------------------------

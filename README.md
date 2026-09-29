@@ -280,22 +280,15 @@ an interactive hidden prompt, or pipe one line to `--password-stdin`.
 Bucket and VM placement are automatic when `--site-id` is omitted. Use
 `ibee compute sites` and pass `--site-id` only when placement must be pinned.
 
-Billable creates send one product request. The public gateway performs the
-authoritative, fail-closed billing decision before routing; a valid denial is
-returned without calling the product service. `ibee billing eligibility`
-remains available as an optional point-in-time preview, and the global
-`--check-billing` flag (or `IBEE_CHECK_BILLING=1`) runs the portal's preflight
-before a billable create: the create is sent only when billing answers
-`allowed: true`, otherwise the portal's explanation is printed (with top-up
-guidance when adding credits in the portal can resolve it) and the command
-exits 1. The preflight never reserves funds.
-
-For Cloud/GPU VM creates, `--check-billing` / `--preflight-billing` checks Billing's
-account status only. No SKU-only monthly probe or client-calculated price is
-sent. The selected catalog term goes to the create API, where the upstream
-catalog quote and Billing decide affordability before provisioning. A passing
-preflight is not purchase approval. CLI 0.4.1 requires Python SDK 0.4.1 or later;
-the CLI delegates to it and does not implement its own pricing policy.
+All product writes reach the upstream API for fresh Billing and lifecycle decisions.
+The CLI never queries billing eligibility or calculates an admission estimate automatically.
+Legacy `--check-billing`, `--preflight-billing`, NAT `--preflight`,
+`--billing-check/--no-billing-check`, and `IBEE_CHECK_BILLING` are deprecated no-ops.
+Structural, workspace, state, scope and destructive-action checks remain in place.
+`ibee billing eligibility` is an explicit diagnostic query: `allowed: false` is data (exit 0);
+the explicit `--require` option retains exit 1 on denial.
+It supports `REVOKE_CREDENTIAL` and `SECURITY_RECOVERY`.
+Upstream errors retain their classification; suspension messages do not infer who suspended an organization.
 
 Load balancers take backends, routing, policy, health checks and L7 rules either
 as flags (`--backend TYPE:TARGET:PORT[:WEIGHT][:tls]`, `--rule
@@ -388,7 +381,7 @@ on) controls the read-only checks that need the current state.
 - **NAT gateways** exist only in `nat_gateway` VPCs (one per VPC; `nat create`
   prints the existing one instead of sending a create). A Reserved IP must be in
   the VPC's site, unattached and `reserved`. `--preflight` (or `--check-billing`)
-  checks NAT-GATEWAY eligibility first. `nat delete` shows how many NAT VMs lose
+  is a deprecated no-op; upstream decides admission. `nat delete` shows how many NAT VMs lose
   outbound internet and how many forwarding rules are deleted before it asks;
   `--ip-action reserve` of a platform-assigned IP needs `--billing-catalog` (the
   RESERVED-IP SKU); deletion is refused while a virtual IP holds a Reserved IP.
@@ -470,8 +463,7 @@ for confirmation, the read-only checks run first (`--no-check-state` skips them)
   timeout). `purge` needs `--mode`; `--mode all` asks first; only the selector for the
   mode is accepted (`--path` 1-30, https URLs only; `--hostname`, `--tag`, `--prefix`
   1-100). A purge the CDN reports as failed exits 1.
-- `--check-billing` (or `--preflight-billing`) checks OBJECTST-STD before a bucket or
-  S3 credential create and CUSTOMDO-STD before a custom domain.
+- `--check-billing` and `--preflight-billing` are deprecated no-ops for storage and CDN.
 - `block-storage create --vm-type`/`--delete-on-termination`, the Block Storage delete
   idempotency key, `cdn cache-policies` and `cdn metrics` are not yet part of the
   published API contract; behaviour may change. Block Storage plans, bucket emptying,
@@ -502,10 +494,7 @@ inputs first.
   values are refused. In `patch-value`, a JSON `null` deletes that key. `--cas` is an
   integer >= 0; a check-and-set mismatch is reported as a conflict and never retried.
   `list` sends a trimmed `--query` (at most 128 characters) only when it is not blank.
-- **Billing**: `stores create` and `secrets create` check SECRETMA-STD eligibility
-  first, as the portal does (`--no-billing-check` turns it off; the global
-  `--check-billing` forces it on). When the token lacks `billing.read` the check is
-  skipped with a warning, because the API still enforces billing on the create.
+- **Billing**: store and secret writes use upstream admission. Both legacy billing-check flags are no-ops.
 - **Batch create**: every item follows the `secrets create` rules and the error names
   its index. Duplicate names are reported (the API skips them). A file with more than
   500 secrets or over 64 KiB is sent as consecutive requests and the results are
@@ -546,7 +535,7 @@ inputs first.
 | `-o`, `--output` | `IBEE_OUTPUT` | `table`, `json`, `yaml` or `id` |
 | `--json` | | Same as `-o json` |
 | `--yes`, `-y` | `IBEE_ASSUME_YES=1` | Answer yes to every confirmation |
-| `--check-billing` | `IBEE_CHECK_BILLING=1` | Billing preflight before billable creates |
+| `--check-billing` | `IBEE_CHECK_BILLING=1` | Deprecated no-op; upstream decides admission |
 
 Without `-o`, each command keeps its usual format (tables for most lists, JSON
 for single resources and operation results). `-o yaml` prints YAML and `-o id`

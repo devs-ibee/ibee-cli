@@ -16,6 +16,37 @@ runner = CliRunner()
 BASE_ARGS = ["--token", "test-token", "--workspace", "973318"]
 
 
+@pytest.mark.parametrize("flag", [[], ["--check-billing"]])
+@pytest.mark.parametrize("status,code", [
+    (402, "billing_denied"), (403, "organization_restricted"),
+    (423, "organization_suspended"), (403, "key_revoked"),
+    (403, "workspace_not_allowed"), (403, "insufficient_scope"),
+])
+def test_mutation_errors_are_upstream_and_suspension_is_source_neutral(gw, flag, status, code):
+    gw.on("POST", "secret-store/stores", (status, {
+        "error": code, "message": "Admin lifecycle decision",
+        "enforcement_source": "ADMIN", "billing_reason": "insufficient_balance",
+        "required_scope": "secret_store.write",
+    }))
+    result = runner.invoke(app, [*BASE_ARGS, *flag, "secrets", "stores", "create", "app"])
+    assert result.exit_code == 1, result.output
+    assert [c.path for c in gw.writes()] == ["secret-store/stores"]
+    if status == 423:
+        assert "Organization suspended (423)" in result.output
+        assert "billing has suspended" not in result.output.lower()
+
+
+@pytest.mark.parametrize("operation", ["REVOKE_CREDENTIAL", "SECURITY_RECOVERY"])
+def test_explicit_lifecycle_eligibility_returns_denial_as_data(gw, monkeypatch, operation):
+    monkeypatch.setattr(billing, "get_client", lambda _settings: gw.client())
+    gw.on("POST", "billing/resource-eligibility", {
+        "organization_id": "org", "allowed": False, "reason": "upstream", "operation": operation,
+    })
+    result = runner.invoke(app, [*BASE_ARGS, "billing", "eligibility", "--operation", operation])
+    assert result.exit_code == 0, result.output
+    assert gw.last("POST", "billing/resource-eligibility").json == {"operation": operation}
+
+
 class Billing:
     def __init__(self, calls, response=None):
         self.calls = calls
@@ -89,7 +120,7 @@ def test_vm_preflight_uses_upstream_status_and_preserves_create_denial(gw, monke
                                 "--site-id", "site-1", "--plan-id", "plan", "--template-id", "image",
                                 "--billing-term", "HOURLY"])
     assert result.exit_code == (1 if denied else 0), result.output
-    assert gw.last("POST", "billing/resource-eligibility").json == {}
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
     creates = [c for c in gw.calls if c.method == "POST" and c.path == f"compute/{family}-vms"]
     assert len(creates) == 1
     assert creates[0].json["billing_catalog"]["billing_interval"] == "HOURLY"
@@ -157,8 +188,8 @@ def test_secret_store_and_secret_create_run_the_portal_billing_preflight(monkeyp
         result = runner.invoke(app, [*BASE_ARGS, *secret_args, *extra])
         assert result.exit_code == 0, result.output
     assert [(name, kwargs["preflight_billing"]) for name, kwargs in resource_calls] == [
-        ("store", True),
-        ("secret", True),
+        ("store", False),
+        ("secret", False),
         ("store", False),
         ("secret", False),
     ]
@@ -168,4 +199,4 @@ def test_secret_store_and_secret_create_run_the_portal_billing_preflight(monkeyp
         app, [*BASE_ARGS, "--check-billing", "secrets", "stores", "create", "production", "--no-billing-check"]
     )
     assert result.exit_code == 0, result.output
-    assert resource_calls[0][1]["preflight_billing"] is True
+    assert resource_calls[0][1]["preflight_billing"] is False

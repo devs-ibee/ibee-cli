@@ -495,7 +495,7 @@ def _api_error_lines(exc: ApiError) -> list[str]:
         return [f"Validation failed (422): {message}"]
     if status == 423 or isinstance(exc, OrganizationSuspendedError):
         return [
-            "Organization suspended (423): billing has suspended this organization, "
+            "Organization suspended (423): this organization is suspended, "
             f"so this change is blocked. {message}"
         ]
     if status == 429:
