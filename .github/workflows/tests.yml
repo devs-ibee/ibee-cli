@@ -37,6 +37,10 @@ jobs:
           SDK_REF: ${{ github.head_ref || github.ref_name }}
         run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
 
+      - name: Install upstream-admission SDK candidate for the paired PR
+        if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-vm-admission'
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9dbe2673a052d63c2c38183f0a3d51b2d1e3b7bb"
+
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
 

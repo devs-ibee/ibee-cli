@@ -290,6 +290,13 @@ before a billable create: the create is sent only when billing answers
 guidance when adding credits in the portal can resolve it) and the command
 exits 1. The preflight never reserves funds.
 
+For Cloud/GPU VM creates, `--check-billing` / `--preflight-billing` checks Billing's
+account status only. No SKU-only monthly probe or client-calculated price is
+sent. The selected catalog term goes to the create API, where the upstream
+catalog quote and Billing decide affordability before provisioning. A passing
+preflight is not purchase approval. CLI 0.4.1 requires Python SDK 0.4.1 or later;
+the CLI delegates to it and does not implement its own pricing policy.
+
 Load balancers take backends, routing, policy, health checks and L7 rules either
 as flags (`--backend TYPE:TARGET:PORT[:WEIGHT][:tls]`, `--rule
 PRIORITY:PATH_PREFIX[:HEADER=VALUE]`, ...) or as JSON (`--backends`, `--routing`,

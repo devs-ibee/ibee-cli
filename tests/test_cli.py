@@ -37,7 +37,7 @@ def test_help_lists_command_groups():
 def test_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "ibee-cli 0.4.0" in result.output
+    assert "ibee-cli 0.4.1" in result.output
 
 
 def test_subcommand_help():
