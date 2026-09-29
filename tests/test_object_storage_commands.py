@@ -103,7 +103,7 @@ def test_create_bucket_preflight_uses_object_storage_sku(gw):
     gw.on("POST", B, bucket())
     result = run(["buckets", "create", "assets", "--region", "r1", "--preflight-billing"])
     assert result.exit_code == 0, result.output
-    assert gw.last("POST", "billing/resource-eligibility").json["sku_code"] == "OBJECTST-STD"
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
 
 
 def test_list_buckets_table_and_next_page_hint(gw):

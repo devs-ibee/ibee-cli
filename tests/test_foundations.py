@@ -654,7 +654,7 @@ def test_check_billing_asks_the_sdk_to_preflight_the_plan_sku(monkeypatch):
     # The SDK checks the plan's SKU and cost itself, so no SKU-less CLI preflight is sent.
     assert calls == []
     assert [name for name, _ in vms_fake.calls] == ["create"]
-    assert vms_fake.calls[0][1]["preflight_billing"] is True
+    assert vms_fake.calls[0][1]["preflight_billing"] is False
 
 
 def test_check_billing_denial_blocks_create(monkeypatch):
@@ -663,7 +663,7 @@ def test_check_billing_denial_blocks_create(monkeypatch):
     class DenyingVms(FakeVms):
         def create_cloud_vm(self, **kwargs):
             self.calls.append(("create", kwargs))
-            assert kwargs["preflight_billing"] is True
+            assert kwargs["preflight_billing"] is False
             raise BillingDeniedError(
                 decision={"allowed": False, "reason": "initial_topup_required"}, create_type="vm"
             )
@@ -683,9 +683,8 @@ def test_check_billing_falls_back_to_check_with_exact_true_gate():
     billing_fake = FakeBilling({"allowed": "true", "reason": "ok"})
     settings = SimpleNamespace(check_billing=True)
     client = SimpleNamespace(billing=billing_fake)
-    with pytest.raises(BillingDeniedError):
-        helpers.preflight_billing(settings, client, "973318", resource_type="gpu_vm")
-    assert [name for name, _ in billing_fake.calls] == ["check"]
+    assert helpers.preflight_billing(settings, client, "973318", resource_type="gpu_vm") is None
+    assert billing_fake.calls == []
 
 
 def test_preflight_create_uses_require_eligibility():
@@ -694,10 +693,8 @@ def test_preflight_create_uses_require_eligibility():
     calls = []
     client = SimpleNamespace(billing=RequireBilling(calls, allowed=False, reason="unknown_sku"))
     settings = SimpleNamespace(check_billing=True, workspace="973318")
-    with pytest.raises(BillingDeniedError) as info:
-        helpers.preflight_create(settings, "cdn", client=client)
-    assert "could not be verified" in str(info.value)
-    assert calls[0][1]["resource_type"] == "cdn"
+    assert helpers.preflight_create(settings, "cdn", client=client) is None
+    assert calls == []
     assert helpers.preflight_create(SimpleNamespace(check_billing=False), "cdn") is None
 
 

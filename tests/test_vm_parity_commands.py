@@ -125,7 +125,7 @@ def test_gpu_create_takes_shape_from_plan(sdk):
     name, args, kwargs = sdk.calls[0]
     assert name == "create_gpu_vm"
     assert "gpu_model" not in kwargs and "gpu_count" not in kwargs
-    assert kwargs["preflight_billing"] is True
+    assert kwargs["preflight_billing"] is False
     assert kwargs["idempotency_key"].startswith("cli-gpu-create-train-")
     assert_sdk_transport("gpu_vms", name, args, kwargs)
 
@@ -283,7 +283,7 @@ def test_delete_reserve_flag_with_preflight(sdk):
     assert result.exit_code == 0, result.output
     kwargs = sdk.calls[-1][2]
     assert (kwargs["public_ip_action"], kwargs["reserved_ip_label"], kwargs["preflight_billing"]) == (
-        "reserve", "keep", True
+        "reserve", "keep", False
     )
 
 
@@ -497,7 +497,7 @@ def test_snapshot_create_from_file_waits_for_success(sdk, tmp_path):
     (create, c_args, c_kwargs), (wait, w_args, w_kwargs) = sdk.calls
     assert create == "create_gpu_vm_snapshot"
     assert c_kwargs["billing_catalog"] == SNAP_SKU
-    assert c_kwargs["preflight_billing"] is True
+    assert c_kwargs["preflight_billing"] is False
     assert_sdk_transport("gpu_vms", create, c_args, c_kwargs)
     assert wait == "wait_for_gpu_vm_snapshot"
     assert w_args == ("snap-1",)

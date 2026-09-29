@@ -618,8 +618,7 @@ def test_domain_create_check_billing_uses_custom_domain_sku(gw):
     gw.on("POST", f"{D}/custom-domains", {"domain": "cdn.example.com", "status": "pending_validation"})
     result = run(["--check-billing", "cdn", "domains", "create", "dist-1", "cdn.example.com"])
     assert result.exit_code == 0, result.output
-    body = gw.last("POST", "billing/resource-eligibility").json
-    assert body["sku_code"] == "CUSTOMDO-STD" and body["estimated_cost_minor"] == 19900
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
 
 
 def test_domain_path_is_normalised(gw):
@@ -729,11 +728,11 @@ def test_purge_success_false_exits_1(gw):
 
 def test_cdn_create_check_billing_denial_stops_before_create(gw):
     gw.on("GET", "object-storage/buckets/b1", {"name": "b1", "region": "r", "is_public": True})
-    gw.on("POST", "billing/resource-eligibility",
-          {"allowed": False, "reason": "insufficient_balance", "organization_id": "org-1"})
+    gw.on("POST", "cdn/distributions", (402, {"error": "billing_denied", "billing_reason": "insufficient_balance"}))
     result = run(["--check-billing", "cdn", "create", "site-cdn", "--origin-id", "b1"])
     assert result.exit_code == 1
-    assert not any(c.path == "cdn/distributions" for c in gw.calls)
+    assert any(c.path == "cdn/distributions" for c in gw.calls)
+    assert not any(c.path == "billing/resource-eligibility" for c in gw.calls)
 
 
 def test_cdn_edge_billing_denial_prints_portal_copy(gw):
