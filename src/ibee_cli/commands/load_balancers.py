@@ -275,7 +275,7 @@ def _create(
 ) -> None:
     settings, workspace, client = _session(ctx)
     method = getattr(client.load_balancers, f"create_{layer}load_balancer")
-    lb = method(workspace_id=workspace, check_billing=check_billing or settings.check_billing,
+    lb = method(workspace_id=workspace, check_billing=False,
                 **{key: value for key, value in fields.items() if value is not None})
     print_json(lb, id_field=ID_FIELD)
 
@@ -333,7 +333,7 @@ def create_l4_load_balancer(
         None, "--tls", help="TLS JSON object (managed certificates only; default for tls_passthrough)"
     ),
     check_billing: bool = typer.Option(
-        False, "--check-billing", help="Check LOADBALA-STD billing eligibility first (same as the global option)"
+        False, "--check-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
     ),
 ) -> None:
     """Create an L4 load balancer (TCP or TLS passthrough)."""
@@ -402,7 +402,7 @@ def create_l7_load_balancer(
     ),
     rules: Optional[str] = typer.Option(None, "--rules", help="Rules JSON array"),
     check_billing: bool = typer.Option(
-        False, "--check-billing", help="Check LOADBALA-STD billing eligibility first (same as the global option)"
+        False, "--check-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
     ),
 ) -> None:
     """Create an L7 load balancer (HTTP or HTTPS)."""

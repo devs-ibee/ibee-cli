@@ -176,7 +176,7 @@ def create_bucket(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check OBJECTST-STD billing eligibility first (same as the global --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Create a bucket."""
@@ -191,7 +191,7 @@ def create_bucket(
         object_lock_enabled=bucket_lock,
         default_retention=retention,
         tags=tag or None,
-        preflight_billing=preflight or settings.check_billing,
+        preflight_billing=False,
     )
     print_json(result, id_field="name")
 
@@ -353,7 +353,7 @@ def create_credential(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check OBJECTST-STD billing eligibility first (same as the global --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Create an S3 access key; its secret is displayed only once.
@@ -368,7 +368,7 @@ def create_credential(
         permission_type=permission_type,
         bucket_scope=bucket_scope,
         allowed_buckets=allowed_bucket or None,
-        preflight_billing=preflight or settings.check_billing,
+        preflight_billing=False,
     )
     # Never print only the ID: the one-time secret would be lost. -o id falls back to JSON.
     print_structured(result, "yaml" if settings.output == "yaml" else "json", id_field="access_key_id")

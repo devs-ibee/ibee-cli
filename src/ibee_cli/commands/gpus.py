@@ -151,7 +151,7 @@ def create_gpu_vm(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check Billing account status first; upstream create decides affordability (same as --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is provisioned"),
     timeout: Optional[float] = timeout_option(),
@@ -223,7 +223,7 @@ def delete_gpu_vm(
     reserved_ip_billing_catalog_file: Optional[str] = typer.Option(None, "--reserved-ip-billing-catalog-file"),
     requested_by: Optional[str] = typer.Option(None, "--requested-by"),
     preflight: bool = typer.Option(
-        False, "--preflight-billing", help="With --reserve-public-ip, check billing eligibility for the Reserved IP SKU"
+        False, "--preflight-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
     ),
     check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is deleted"),

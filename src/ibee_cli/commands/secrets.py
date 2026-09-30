@@ -278,8 +278,7 @@ def create_store(
     billing_check: bool = typer.Option(
         True,
         "--billing-check/--no-billing-check",
-        help="Check SECRETMA-STD billing eligibility first, as the portal does (default: on). "
-        "Skipped with a warning when the token lacks billing.read",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
     if_exists: IfExists = typer.Option(
         IfExists.ERROR,
@@ -299,7 +298,7 @@ def create_store(
                 workspace_id=workspace,
                 name=body["name"],
                 description=body.get("description"),
-                preflight_billing=bool(billing_check or settings.check_billing),
+                preflight_billing=False,
             )
         except ConflictError as exc:
             if if_exists is not IfExists.REUSE or type(exc) is not ConflictError:
@@ -997,8 +996,7 @@ def create_secret(
     billing_check: bool = typer.Option(
         True,
         "--billing-check/--no-billing-check",
-        help="Check SECRETMA-STD billing eligibility first, as the portal does (default: on). "
-        "Skipped with a warning when the token lacks billing.read",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Create a secret in an active store."""
@@ -1016,7 +1014,7 @@ def create_secret(
             workspace_id=workspace,
             secret_name=secret_name,
             value=secret_value,
-            preflight_billing=bool(billing_check or settings.check_billing),
+            preflight_billing=False,
         )
     if settings.structured_output:
         print_json(result)

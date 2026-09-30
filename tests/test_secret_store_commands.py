@@ -168,17 +168,16 @@ def test_store_create_runs_billing_preflight_then_creates_trimmed_name(gw):
     gw.on("POST", ELIGIBILITY, {"allowed": True, "reason": "ok", "sku_code": "SECRETMA-STD", "organization_id": "org"})
     gw.on("POST", S, store())
     result = ok(run(["secrets", "stores", "create", "  Production  ", "-d", " main "]))
-    assert [(c.method, c.path) for c in gw.calls] == [("POST", ELIGIBILITY), ("POST", S)]
-    assert gw.last("POST", ELIGIBILITY).json["sku_code"] == "SECRETMA-STD"
+    assert [(c.method, c.path) for c in gw.calls] == [("POST", S)]
     assert gw.last("POST", S).json == {"name": "Production", "description": "main"}
     assert "created" in plain(result)
 
 
 def test_store_create_billing_denied_sends_no_create(gw):
-    gw.on("POST", ELIGIBILITY, {"allowed": False, "reason": "insufficient_balance", "sku_code": "SECRETMA-STD", "organization_id": "org"})
+    gw.on("POST", S, (402, {"error": "billing_denied", "billing_reason": "insufficient_balance"}))
     result = run(["secrets", "stores", "create", "Production"])
     assert result.exit_code == 1, result.output
-    assert [c.path for c in gw.calls] == [ELIGIBILITY]
+    assert [c.path for c in gw.calls] == [S]
     assert "402" in plain(result) or "Payment" in plain(result)
 
 
@@ -186,7 +185,8 @@ def test_store_create_skips_billing_check_without_billing_read(gw):
     gw.on("POST", ELIGIBILITY, (403, {"error": "insufficient_scope", "required_scope": "billing.read"}))
     gw.on("POST", S, store())
     result = ok(run(["secrets", "stores", "create", "Production"]))
-    assert "Billing preflight skipped" in plain(result)
+    assert "Billing preflight skipped" not in plain(result)
+    assert not any(c.path == ELIGIBILITY for c in gw.calls)
     assert gw.last("POST", S).json == {"name": "Production"}
 
 
@@ -332,7 +332,7 @@ def test_secret_create_normalizes_name_and_runs_preflight(gw):
     result = ok(run(["secrets", "create", "-s", "store-1", "-n", " DB-URL ", "--value", '{" url ":"postgres://x"}']))
     assert gw.last("POST", f"{S}/store-1/secrets").json == {"secret_name": "db-url", "value": {"url": "postgres://x"}}
     assert "normalized to 'db-url'" in plain(result)
-    assert [c.path for c in gw.calls] == [ELIGIBILITY, f"{S}/store-1/secrets"]
+    assert [c.path for c in gw.calls] == [f"{S}/store-1/secrets"]
 
 
 @pytest.mark.parametrize(

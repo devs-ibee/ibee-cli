@@ -103,7 +103,7 @@ def create_vm(
     ram_mb: Optional[int] = typer.Option(None, "--ram-mb", help="RAM in MB (default: the plan's; must match it)"),
     disk_gb: Optional[int] = typer.Option(None, "--disk-gb", help="Root disk in GB (default: the plan's; must match it)"),
     billing_term: Optional[str] = typer.Option(
-        None, "--billing-term", help="Billing term: " + ", ".join(BILLING_TERMS) + " (default HOURLY, or the plan's first term)"
+        None, "--billing-term", help="Billing term sent to the API: " + ", ".join(BILLING_TERMS) + " (default HOURLY, or the plan's first term); admission is decided upstream"
     ),
     windows_license: Optional[str] = typer.Option(
         None,
@@ -150,7 +150,7 @@ def create_vm(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check Billing account status first; upstream create decides affordability (same as --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is provisioned"),
     timeout: Optional[float] = timeout_option(),
@@ -222,7 +222,7 @@ def delete_vm(
     reserved_ip_billing_catalog_file: Optional[str] = typer.Option(None, "--reserved-ip-billing-catalog-file"),
     requested_by: Optional[str] = typer.Option(None, "--requested-by"),
     preflight: bool = typer.Option(
-        False, "--preflight-billing", help="With --reserve-public-ip, check billing eligibility for the Reserved IP SKU"
+        False, "--preflight-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
     ),
     check_state: bool = check_state_option(),
     wait: bool = typer.Option(False, "--wait", help="Poll until the VM is deleted"),

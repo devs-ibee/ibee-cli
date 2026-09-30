@@ -152,7 +152,7 @@ def create_distribution(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check billing eligibility first (same as the global --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Create a CDN distribution for a public bucket.
@@ -171,7 +171,7 @@ def create_distribution(
         origin_type=origin_type,
         cache_policy=cache_policy,
         check_origin_public=check_origin,
-        preflight_billing=preflight or settings.check_billing,
+        preflight_billing=False,
     ))
 
 
@@ -327,7 +327,7 @@ def create_domain(
     preflight: bool = typer.Option(
         False,
         "--preflight-billing",
-        help="Check CUSTOMDO-STD billing eligibility first (same as the global --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Add a custom domain (billed), then print the CNAME record to create."""
@@ -337,7 +337,7 @@ def create_domain(
         distribution_id,
         workspace_id=workspace,
         domain=domain,
-        preflight_billing=preflight or settings.check_billing,
+        preflight_billing=False,
     )
     _print(result)
     if not settings.structured_output:

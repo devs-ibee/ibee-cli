@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.2
+
+- Every billing preflight flag (`--check-billing`, `IBEE_CHECK_BILLING` and the
+  per-command `--billing-check/--no-billing-check`) is accepted as a no-op. The API
+  decides admission for every create; the CLI never applies its own billing veto
+  or cost estimate and still sends exactly one request.
+- `billing eligibility` reports a denial as data (`allowed=false`, exit 0); only
+  `--require` turns a denial into a nonzero exit.
+- Typed upstream errors are preserved as raised, with the reason, SKU and
+  admission context of a billing denial.
+- Denials print no invented currency, minimum top-up amount or "add credits"
+  guidance; top-up guidance appears only when upstream lists `billing_topup` in
+  `allowed_operations`.
+- Require Python SDK 0.4.2; publish that dependency before this CLI release.
+
 ## 0.4.1
 
 - VM preflight checks Billing account status without a client-calculated price or
