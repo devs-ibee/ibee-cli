@@ -398,7 +398,7 @@ def create_vms(
         ),
     )
     if preflight or getattr(settings, "check_billing", False):
-        common["preflight_billing"] = True
+        common["preflight_billing"] = False
     results = []
     for vm_name, key in zip(names, keys):
         try:
@@ -521,7 +521,7 @@ def delete_vm(
         kwargs = resolve("reserve" if reserve else "release")
     if preflight or getattr(settings, "check_billing", False):
         if kwargs.get("public_ip_action") == "reserve":
-            kwargs["preflight_billing"] = True
+            kwargs["preflight_billing"] = False
     result = _method(resource, spec, "delete")(
         vm_id=vm_id,
         workspace_id=workspace,
@@ -1041,7 +1041,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
         billing_catalog: Optional[str] = typer.Option(None, "--billing-catalog", help=SNAPSHOT_SKU_HELP),
         billing_catalog_file: Optional[str] = typer.Option(None, "--billing-catalog-file", help="File with the SKU JSON"),
         preflight: bool = typer.Option(
-            False, "--preflight-billing", help="Check billing eligibility for the SKU first (needs billing.read)"
+            False, "--preflight-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
         ),
         requested_by: Optional[str] = typer.Option(None, "--requested-by"),
         check_state: bool = check_state_option(),
@@ -1065,7 +1065,7 @@ def register_vm_lifecycle(app: typer.Typer, spec: VmCommandSpec) -> None:
                 mode=mode,
                 selected_data_volume_ids=selected_data_volume_id,
                 requested_by=requested_by,
-                preflight_billing=True if preflight or getattr(settings, "check_billing", False) else None,
+                preflight_billing=False,
             ),
         )
         snapshot_id = cell(result, "snapshot_set_id") or cell(result, "id")

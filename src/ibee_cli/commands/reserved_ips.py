@@ -2,7 +2,7 @@
 
 The Python SDK applies the portal's rules: label and reverse-DNS formats, no release
 while attached, attach versus move, no detach of a converted address that is still
-the VM's active IP, and the RESERVED-IP billing preflight for conversions.
+the VM's active IP, and upstream admission for conversions.
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def reserve_ip(
         None, "--billing-catalog-file", metavar="PATH", help="Read --billing-catalog from a JSON file"
     ),
     check_billing: bool = typer.Option(
-        False, "--check-billing", help="Check RESERVED-IP billing eligibility first (same as the global option)"
+        False, "--check-billing", help="Deprecated no-op; upstream decides billing and lifecycle admission."
     ),
 ) -> None:
     """Reserve a new public IP address (billed while reserved)."""
@@ -72,7 +72,7 @@ def reserve_ip(
         site_id=site_id,
         label=label,
         billing_catalog=catalog,
-        check_billing=check_billing or settings.check_billing,
+        check_billing=False,
     )
     print_json(reserved, id_field=ID_FIELD)
 
@@ -93,7 +93,7 @@ def convert_vm_public_ip(
     billing_check: bool = typer.Option(
         True,
         "--billing-check/--no-billing-check",
-        help="Check RESERVED-IP billing eligibility first (default: on; needs the billing.read scope)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
 ) -> None:
     """Keep a VM's current public IPv4 as a Reserved IP (VMs outside a VPC).
@@ -103,22 +103,14 @@ def convert_vm_public_ip(
 
     _settings, workspace, client = _session(ctx)
     catalog = load_json_input(billing_catalog, billing_catalog_file, "billing-catalog")
-    try:
-        reserved = client.reserved_ips.convert_vm_public_ip_to_reserved_ip(
-            workspace_id=workspace,
-            vm_id=vm_id,
-            site_id=site_id,
-            label=label,
-            billing_catalog=catalog,
-            billing_check=billing_check,
-        )
-    except ForbiddenError as exc:
-        text = str(getattr(exc, "message", "") or "")
-        if billing_check and (getattr(exc, "required_scope", None) == "billing.read" or "billing.read" in text):
-            exc.cli_hint = (  # type: ignore[attr-defined]
-                "The RESERVED-IP billing check needs the billing.read scope; grant it or pass --no-billing-check."
-            )
-        raise
+    reserved = client.reserved_ips.convert_vm_public_ip_to_reserved_ip(
+        workspace_id=workspace,
+        vm_id=vm_id,
+        site_id=site_id,
+        label=label,
+        billing_catalog=catalog,
+        billing_check=False,
+    )
     print_json(reserved, id_field=ID_FIELD)
 
 

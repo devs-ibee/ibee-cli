@@ -41,6 +41,10 @@ jobs:
         if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-vm-admission'
         run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9dbe2673a052d63c2c38183f0a3d51b2d1e3b7bb"
 
+      - name: Install SDK 0.4.2 candidate for the paired policy PR
+        if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-billing-policy-042'
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9636bd427edf172a98a70ba38d82bf30dd5311c8"
+
       - name: Install package with dev extras
         run: pip install -e ".[dev]"
 

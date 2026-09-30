@@ -200,11 +200,12 @@ def test_firewall_summary_page_of_exactly_100_checks_for_more(gw):
 
 
 def test_reserved_ip_convert_without_billing_scope_points_at_the_flag(gw):
-    gw.on("POST", "billing/resource-eligibility", SCOPE_403("billing.read"))
+    gw.on("POST", "networking/reserved-ips/convert", SCOPE_403("networking.write"))
     result = run(["reserved-ips", "convert", "--vm-id", "vm-1", "--site-id", "site-1"])
     assert result.exit_code == 1
-    assert "--no-billing-check" in plain(result)
-    assert all(c.path != "networking/reserved-ips/convert" for c in gw.calls)
+    assert "networking.write" in plain(result)
+    assert "--no-billing-check" not in plain(result)
+    assert [c.path for c in gw.writes()] == ["networking/reserved-ips/convert"]
 
 
 @pytest.mark.parametrize(

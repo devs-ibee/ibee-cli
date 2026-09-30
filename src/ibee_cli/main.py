@@ -87,8 +87,8 @@ def main(
         False,
         "--check-billing",
         help=(
-            "Ask billing before a billable create and stop when it would be denied "
-            "(env IBEE_CHECK_BILLING=1)"
+            "Deprecated no-op; upstream decides mutation admission "
+            "(also applies to IBEE_CHECK_BILLING)"
         ),
     ),
     version: bool = typer.Option(

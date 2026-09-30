@@ -529,7 +529,7 @@ def create_nat_gateway(
     ),
     preflight: bool = typer.Option(
         False, "--preflight", "--preflight-billing",
-        help="Check NAT-GATEWAY billing eligibility first (also set by the global --check-billing)",
+        help="Deprecated no-op; upstream decides billing and lifecycle admission.",
     ),
     check_state: bool = check_state_option(),
 ) -> None:
@@ -561,7 +561,7 @@ def create_nat_gateway(
             reserved_public_ip_id=reserved_public_ip_id,
             name=name,
             billing_catalog=catalog,
-            preflight_billing=preflight or settings.check_billing,
+            preflight_billing=False,
             check_state=False,
         )
     print_json(gateway, id_field="nat_gateway_id")
