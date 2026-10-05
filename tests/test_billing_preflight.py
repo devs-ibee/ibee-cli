@@ -26,11 +26,18 @@ def test_mutation_errors_are_upstream_and_suspension_is_source_neutral(gw, flag,
     gw.on("POST", "secret-store/stores", (status, {
         "error": code, "message": "Admin lifecycle decision",
         "enforcement_source": "ADMIN", "billing_reason": "insufficient_balance",
+        "admission_context_id": "adm-policy",
         "required_scope": "secret_store.write",
-    }))
+    }, {"X-Request-ID": "req-policy", "Retry-After": "0"}))
     result = runner.invoke(app, [*BASE_ARGS, *flag, "secrets", "stores", "create", "app"])
     assert result.exit_code == 1, result.output
     assert [c.path for c in gw.writes()] == ["secret-store/stores"]
+    assert len(gw.calls) == 1  # No diagnostic billing.read request, even with --check-billing.
+    assert f"code={code}" in result.output
+    assert "reason=insufficient_balance" in result.output
+    assert "request_id=req-policy" in result.output
+    assert "admission_context_id=adm-policy" in result.output
+    assert "Retry safely" not in result.output
     if status == 423:
         assert "Organization suspended (423)" in result.output
         assert "billing has suspended" not in result.output.lower()
@@ -163,9 +170,8 @@ def test_billable_creates_send_one_product_request_for_edge_admission(gw, args, 
     assert not any(c.path.startswith("billing") for c in gw.calls)
 
 
-def test_secret_store_and_secret_create_run_the_portal_billing_preflight(monkeypatch):
-    """The portal checks SECRETMA-STD before a store or secret create; the CLI asks the
-    SDK to do the same by default, and --no-billing-check turns it off."""
+def test_secret_store_and_secret_create_keep_legacy_billing_flags_as_noops(monkeypatch):
+    """Legacy flags never add a diagnostic billing.read requirement to writes."""
 
     resource_calls = []
 
@@ -193,7 +199,7 @@ def test_secret_store_and_secret_create_run_the_portal_billing_preflight(monkeyp
         ("store", False),
         ("secret", False),
     ]
-    # The global --check-billing forces the check even with --no-billing-check.
+    # The global --check-billing remains a no-op even with --no-billing-check.
     resource_calls.clear()
     result = runner.invoke(
         app, [*BASE_ARGS, "--check-billing", "secrets", "stores", "create", "production", "--no-billing-check"]

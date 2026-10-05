@@ -6,6 +6,7 @@ from __future__ import annotations
 import itertools
 import json
 import re
+import sys
 from types import SimpleNamespace
 
 import httpx
@@ -241,13 +242,22 @@ def test_accepted_operation_with_output_id_prints_operation_id(monkeypatch):
     assert result.output.strip() == "op-1"
 
 
-def test_builtin_yaml_emitter_and_identifiers():
+@pytest.mark.parametrize("use_pyyaml", [False, True], ids=["builtin", "pyyaml"])
+def test_yaml_emitter_and_identifiers(monkeypatch, use_pyyaml):
     data = {"id": "vm-1", "tags": ["a", "b"], "nested": {"on": True, "n": None, "v": "1.0"}, "empty": []}
+    if use_pyyaml:
+        yaml = pytest.importorskip("yaml")
+    else:
+        monkeypatch.setitem(sys.modules, "yaml", None)
     text = to_yaml(data)
     assert "id: vm-1" in text
     assert "- a" in text
-    assert "  on: true" in text or '  "on": true' in text
-    assert '  v: "1.0"' in text
+    if use_pyyaml:
+        # Quote style may vary; keys and value types must survive YAML parsing.
+        assert json.dumps(yaml.safe_load(text), sort_keys=True) == json.dumps(data, sort_keys=True)
+    else:
+        assert '  "on": true' in text
+        assert '  v: "1.0"' in text
     assert "empty: []" in text
     assert identifiers({"items": [{"volume_id": "v1"}, {"name": "x"}]}) == ["v1", "x"]
 
@@ -367,13 +377,26 @@ def test_keyed_write_failure_prints_retry_hint(probe):
     assert "Retry safely with: --idempotency-key my-key-1" in plain(result)
 
 
-@pytest.mark.parametrize("status", [409, 500, 408])
-def test_non_retryable_statuses_are_not_retried(probe, status):
+@pytest.mark.parametrize("status,code", [
+    (409, "conflict"), (500, "internal_error"), (408, "http_408"),
+    (402, "billing_denied"), (403, "organization_restricted"), (423, "organization_suspended"),
+])
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_non_retryable_statuses_are_not_retried(probe, no_sleep, status, code, method):
     http = probe
-    http.responses = [FakeResponse({"detail": "nope"}, status)]
-    result = run([*GATEWAY, *call("GET", "object-storage/buckets")])
+    http.responses = [FakeResponse({
+        "error": code, "message": "upstream decision", "billing_reason": "operator_review_required",
+    }, status, {"X-Request-ID": "req-policy", "Retry-After": "0"})]
+    body = {"new_size_gb": 20, "idempotency_key": "policy-key"} if method == "POST" else None
+    result = run([*GATEWAY, *call(method, "block-storage/volumes/vol-1/resize", body)])
     assert result.exit_code == 1
     assert len(http.calls) == 1
+    assert no_sleep == []
+    if status in (402, 403, 423):
+        assert f"code={code}" in plain(result)
+        assert "reason=operator_review_required" in plain(result)
+        assert "request_id=req-policy" in plain(result)
+        assert "Retry safely" not in plain(result)
 
 
 def test_connect_error_is_retried_but_read_timeout_on_unkeyed_post_is_not(probe):

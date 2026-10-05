@@ -280,7 +280,7 @@ an interactive hidden prompt, or pipe one line to `--password-stdin`.
 Bucket and VM placement are automatic when `--site-id` is omitted. Use
 `ibee compute sites` and pass `--site-id` only when placement must be pinned.
 
-All product writes reach the upstream API for fresh Billing and lifecycle decisions.
+The upstream API owns Billing and lifecycle decisions for product writes.
 The CLI never queries billing eligibility or calculates an admission estimate automatically.
 Legacy `--check-billing`, `--preflight-billing`, NAT `--preflight`,
 `--billing-check/--no-billing-check`, and `IBEE_CHECK_BILLING` are deprecated no-ops.

@@ -394,6 +394,17 @@ def _billing_message(exc: ApiError) -> list[str]:
 def api_error_lines(exc: ApiError) -> list[str]:
     """Human-readable lines describing an API error, plus the SDK's hint when it has one."""
     lines = _api_error_lines(exc)
+    if exc.status_code in (402, 403, 423):
+        refs = [f"code={exc.code}"]
+        # The 402 explanation already includes reason and admission references.
+        if exc.status_code != 402:
+            if getattr(exc, "reason", None):
+                refs.append(f"reason={exc.reason}")
+            if getattr(exc, "admission_context_id", None):
+                refs.append(f"admission_context_id={exc.admission_context_id}")
+        if getattr(exc, "request_id", None):
+            refs.append(f"request_id={exc.request_id}")
+        lines.append("  " + " ".join(refs))
     hint = getattr(exc, "hint", None)
     if isinstance(hint, str) and hint and not isinstance(
         exc, (CasConflictError, DeletionIncompleteError, ResourceNotFoundError)
