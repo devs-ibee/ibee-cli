@@ -29,7 +29,8 @@ app = typer.Typer(
     name="ibee",
     help=(
         "IBEE Solutions cloud platform CLI. Auth: set IBEE_TOKEN and IBEE_WORKSPACE_ID. "
-        "Exit codes: 0 ok, 1 API/operation failure, 2 usage/validation, 3 --wait timeout."
+        "Exit codes: 0 ok, 1 failed operation or other error, 2 usage, 3 --wait timeout, 4 network error, "
+        "10 HTTP 400, 11 401, 12 402, 13 403, 14 404, 15 409, 16 422, 17 423, 18 429, 19 5xx."
     ),
     no_args_is_help=True,
 )
@@ -83,23 +84,16 @@ def main(
         "-y",
         help="Answer yes to every confirmation (env IBEE_ASSUME_YES=1)",
     ),
-    check_billing: bool = typer.Option(
-        False,
-        "--check-billing",
-        help=(
-            "Deprecated no-op; upstream decides mutation admission "
-            "(also applies to IBEE_CHECK_BILLING)"
-        ),
-    ),
     version: bool = typer.Option(
         None, "--version", callback=_version_callback, is_eager=True, help="Show version"
     ),
 ) -> None:
     """IBEE Solutions cloud platform CLI.
 
-    Exit codes: 0 success; 1 API, network or operation failure (or a declined
-    confirmation); 2 usage or validation error; 3 --wait timed out while the
-    operation was still running.
+    Exit codes: 0 success; 1 a failed operation, a declined confirmation or another
+    error; 2 usage or configuration error (nothing was sent); 3 --wait timed out while
+    the operation was still running; 4 network error; 10-18 the API refused the
+    request (400, 401, 402, 403, 404, 409, 422, 423, 429); 19 server error (5xx).
     """
     if as_json and output is not None:
         source = ctx.get_parameter_source("output")
@@ -113,7 +107,6 @@ def main(
         as_json,
         output=output,
         assume_yes=assume_yes,
-        check_billing=check_billing,
     )
 
 

@@ -25,25 +25,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install IBEE Python SDK 0.3 candidate
-        if: endsWith(github.head_ref, 'public-api-v0.3') || endsWith(github.ref_name, 'public-api-v0.3')
+      # A CLI branch is tested with the ibee-python branch of the same name when one
+      # exists (for example feat/0.5.0 with feat/0.5.0); otherwise with ibee from PyPI.
+      - name: Install the IBEE Python SDK from the same-named branch
         env:
           SDK_REF: ${{ github.head_ref || github.ref_name }}
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
-
-      - name: Install IBEE Python SDK 0.4 candidate
-        if: endsWith(github.head_ref, 'portal-parity-0.4') || endsWith(github.ref_name, 'portal-parity-0.4')
-        env:
-          SDK_REF: ${{ github.head_ref || github.ref_name }}
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
-
-      - name: Install upstream-admission SDK candidate for the paired PR
-        if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-vm-admission'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9dbe2673a052d63c2c38183f0a3d51b2d1e3b7bb"
-
-      - name: Install SDK 0.4.2 candidate for the paired policy PR
-        if: github.event_name == 'pull_request' && github.head_ref == 'codex/upstream-billing-policy-042'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@9636bd427edf172a98a70ba38d82bf30dd5311c8"
+        run: |
+          if git ls-remote --exit-code --heads https://github.com/devs-ibee/ibee-python.git "$SDK_REF" > /dev/null; then
+            pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${SDK_REF}"
+          else
+            echo "No ibee-python branch named $SDK_REF; using ibee from PyPI."
+          fi
 
       - name: Install package with dev extras
         run: pip install -e ".[dev]"

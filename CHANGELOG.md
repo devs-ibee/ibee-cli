@@ -1,5 +1,127 @@
 # Changelog
 
+## 0.5.0
+
+The CLI is now a thin layer over the IBEE Python SDK 0.5.0: each command makes one
+SDK call and prints the server's answer. The client-side rule checks, state
+pre-reads, billing wording and per-product waiters are gone; the server answers what
+they used to check.
+
+### Changed
+
+- Requires `ibee>=0.5.0,<0.6.0`.
+- Errors: every error prints the HTTP status and the server's `code`, `reason`
+  (billing reason), `message` and `request_id`, plus `admission_context_id` and
+  `required_scope` when present, exactly as sent; no CLI wording replaces them.
+  With `-o json` the error is printed as `{"error": {...}}` (including the raw
+  `body`) on stderr.
+- Exit codes per error class (were 1 for every API error): 0 success; 1 failed
+  operation, declined confirmation or other error; 2 usage or configuration error
+  (nothing sent); 3 `--wait` timed out; 4 network error; 10 HTTP 400; 11 401;
+  12 402; 13 403; 14 404; 15 409; 16 422; 17 423; 18 429; 19 5xx.
+- `--idempotency-key` values are sent as given (no local format check); without it
+  the SDK sends a random key, which the retry hint prints after a retryable failure.
+- `--wait` polls the compute operation every 5 s for up to 1200 s by default for every
+  command (volume attach/detach used 2 s / 120 s); `--timeout`/`--poll-interval`
+  without `--wait` are ignored instead of exit 2.
+- Values the CLI used to refuse (names, sizes, ranges, `--mode`, `--range`, `--month`,
+  billing terms, eligibility operations, IDs) are sent and answered by the server.
+- `vms/gpus delete` no longer reads the VM or asks about the public IP: it releases an
+  auto-assigned public IP unless `--reserve-public-ip` (SDK default).
+- `billing eligibility --require` exits 1 without printing billing wording; new
+  options `--resource-type`, `--quantity` and `--size-gb`.
+- `vms/gpus create` takes `--vpc-attachment-mode`.
+
+### Breaking changes (removed)
+
+- Global: `--check-billing` and `IBEE_CHECK_BILLING`; `ibee_cli.context.api_request`,
+  `CliApiError`, `Settings.check_billing`, `Settings.env_name`.
+- Every `--check-state/--no-check-state` and `--preflight-billing` option.
+- `vms/gpus list`: `--search`, `--sort-by`, `--sort-direction`.
+- `vms/gpus create`: `--firewall-group-id`, `--requested-by` (not in the create
+  contract).
+- `vms/gpus delete`: `--requested-by`.
+- `vms/gpus resize-precheck`: `--plan-id`.
+- `vms/gpus snapshots create`, `snapshots restore`, `snapshots restore-status`,
+  `backups create`, `backups restore`, `backups restore-status`: `--wait`,
+  `--timeout`, `--poll-interval` (poll with the `get`/`restore-status` commands).
+- `vms/gpus snapshots restore`: `--target-volume-name`, `--target-billing-catalog`,
+  `--target-billing-catalog-file`, `--vpc-id`, `--subnet-id`,
+  `--network-connectivity`, `--ssh-key-id`; `backups restore`:
+  `--target-volume-name`, `--target-billing-catalog`, `--target-billing-catalog-file`
+  (not in the restore contract).
+- `vms/gpus backups list`: `--restorable-only`.
+- Commands on routes outside the contract: `vms/gpus backups list-all`,
+  `vms/gpus backups delete`.
+- `vpcs`: the `virtual-ips` group (`list`, `get`, `create`, `delete`, `attach-ip`,
+  `detach-ip`), `nat replace-ip`; `sites --available-only`; `create
+  --check-site/--no-check-site`; `delete --delete-nat-gateway`, `--nat-ip-action`,
+  `--nat-billing-catalog(-json|-file)`; `nodes attach --private-ip`; `nat create
+  --preflight`; `nat delete --wait`; `forwarding create/update --target`,
+  `--target-vm-id`.
+- `reserved-ips`: `convert`, `attach-virtual-ip`, `attach-vip`; `reserve --check-billing`;
+  `attach --detach-from-service`.
+- `firewalls list --summary`.
+- `load-balancers`: `list/get --include-deleted`; `create-l4/create-l7 --check-billing`;
+  on create and update `--policy`, `--timeout-ms`, `--retries`, `--per-retry-timeout-ms`,
+  `--retry-on`, `--proxy-protocol/--no-proxy-protocol`, `--health-check`,
+  `--health-check-type`, `--health-check-path`, `--health-check-interval-ms`,
+  `--health-check-timeout-ms`, `--healthy-threshold`, `--unhealthy-threshold`,
+  `--logs/--no-logs` (not in the contract). `--backend` and `--rule` take one JSON
+  object each instead of the `TYPE:TARGET:PORT` / `PRIORITY:PATH` mini-language.
+- `block-storage`: `attach-vm`, `detach-vm` (use `vms/gpus volume-attach` and
+  `volume-detach`); `list --site-id`, `--vm-type`, `--limit`, `--offset`, `--all`;
+  `create --vm-type`, `--delete-on-termination/--keep-on-termination`,
+  `--check-site/--no-check-site`; `operations --limit`; `delete --idempotency-key`.
+- `buckets`: `credentials delete` (alias of `credentials revoke`); `list --all`;
+  `delete --skip-preflight`.
+- `cdn`: `cache-policies`, `metrics`; `create --check-origin/--no-check-origin`;
+  `domains verify --wait`, `--timeout`, `--poll-interval`.
+- `secrets`: `stores list --all`, `list --all`; `stores create --if-exists`;
+  `--billing-check/--no-billing-check` on `stores create` and `create`.
+
+### Client defaults and checks removed (the server's defaults and answers apply)
+
+- Sent only when given: `vpcs create --connectivity` (was private), `--default-subnet`
+  (was on) and the injected `auto_cidr`; `nat create --name`; `forwarding create
+  --protocol`, `--note`, `--enabled`; `firewalls rules create --direction`,
+  `--protocol`, `--action`; `block-storage create --class`, `--replicas`,
+  `--backup-enabled`; `block-storage attach --mode`, `--vm-type`; `--force` and
+  `--confirm-unmounted` on volume detach and delete; `buckets list --limit`;
+  `buckets create --public`; `cdn create --origin-type`, `--cache-policy`; `cdn
+  website set --index-document`; secret identity `--token-policy-mode` and scope
+  `--access-mode`/`--allow-*`; secret list `--page`/`--limit`.
+- `buckets create --region` is required (or `IBEE_REGION`); the host default table is
+  gone. `block-storage detach --node-name` is required (it was read from the volume).
+  `secrets undelete --versions` is required (it was read from the secret).
+- `firewalls rules create --port N` sends `port_start` only; `N-M` sends both values.
+- `secrets batch-create` sends one request (no 500-item / 64 KiB split) and still exits
+  1 when the server reports failures. Names, values, versions, CIDRs, ports, sizes and
+  purge selectors are sent as typed (no lower-casing, splitting or range checks).
+- Write commands print the server's JSON instead of CLI sentences, notes and hints;
+  confirmation prompts name only the target.
+
+### Kept
+
+- `--yes` confirmations, secret display guards (`console create --show-url`,
+  `secrets identities access`/`rotate-secret-id` with `--show-sensitive` or `-o json`),
+  `--idempotency-key`, one generic `--wait` on compute operations, table/json/yaml/id
+  output.
+- Through the SDK's held behaviours: `vms/gpus create --billing-term`,
+  `--billing-catalog`, `--windows-license`; `delete --reserve-public-ip`,
+  `--reserved-ip-label`, `--reserved-ip-billing-catalog`; `--billing-catalog` on
+  volume attach, resize, resize-plan, resize-root-disk, backup policy, `reserved-ips
+  reserve`, `vpcs create --nat-billing-catalog`, `nat create/delete`; every page for
+  `vms/gpus/firewalls list` without `--limit`/`--offset`.
+
+### Migration
+
+- Scripts that tested `exit code == 1` for API errors: use the per-class codes above
+  (or treat any nonzero code as failure).
+- Drop `--check-state`, `--preflight-billing`, `--check-billing` and the other removed
+  options; read the server's `code`, `reason` and `message` when a request is refused.
+- Pass `--region` to `buckets create` and any value you relied on a CLI default for.
+
 ## 0.4.2
 
 - Every billing preflight flag (`--check-billing`, `IBEE_CHECK_BILLING` and the
