@@ -1,7 +1,7 @@
-"""A scripted public gateway for networking CLI tests.
+"""A scripted public gateway for CLI tests.
 
 Commands run against the real Python SDK (``Ibee``) whose HTTP client uses an
-``httpx.MockTransport``, so the SDK's portal pre-steps and validations run for real.
+``httpx.MockTransport``, so every request the CLI makes goes through the SDK.
 """
 
 from __future__ import annotations
@@ -17,16 +17,26 @@ from typer.testing import CliRunner
 
 from ibee_cli import context
 from ibee_cli.commands import (
+    billing,
     block_storage,
     buckets,
     cdn,
+    compute,
+    console,
     firewalls,
     load_balancers,
     networking,
+    ops,
     reserved_ips,
     secrets,
+    vm_lifecycle,
 )
 from ibee_cli.main import app
+
+COMMAND_MODULES = (
+    billing, block_storage, buckets, cdn, compute, console, firewalls, load_balancers, networking, ops,
+    reserved_ips, secrets, vm_lifecycle, context,
+)
 
 WS = "973318"
 BASE_URL = "https://gateway.example/v1"
@@ -85,6 +95,7 @@ class Gateway:
     def client(self) -> Ibee:
         return Ibee(
             token="test-token",
+            workspace_id=WS,
             base_url=self.base_url,
             httpx_client=httpx.Client(transport=httpx.MockTransport(self.handler)),
             max_retries=0,
@@ -103,12 +114,13 @@ class Gateway:
 
 
 def install(monkeypatch) -> Gateway:
-    """Route every networking, storage and Secret Store command's SDK client to a new scripted gateway."""
+    """Route every command's SDK client to a new scripted gateway."""
 
     gateway = Gateway()
     factory = lambda _settings: gateway.client()  # noqa: E731
-    for module in (networking, reserved_ips, firewalls, load_balancers, block_storage, buckets, cdn, secrets, context):
-        monkeypatch.setattr(module, "get_client", factory)
+    for module in COMMAND_MODULES:
+        if hasattr(module, "get_client"):
+            monkeypatch.setattr(module, "get_client", factory)
     return gateway
 
 
