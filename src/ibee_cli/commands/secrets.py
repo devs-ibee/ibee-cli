@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import typer
 
-from ..context import get_client, get_settings
+from ..context import fail_usage, get_client, get_settings
 from ..helpers import compact_payload, confirm_destructive, field, parse_json, parse_value, response_items
 from ..render import cell, emit, handle_api_errors, print_json, print_table
 
@@ -63,10 +63,7 @@ def _confirm_on_terminal(settings: Any, prompt: str, yes: bool) -> None:
 def _require_show_sensitive(settings: Any, show_sensitive: bool) -> None:
     """The answer carries credentials: send only with --show-sensitive or -o json|yaml|id."""
     if not (show_sensitive or settings.structured_output):
-        raise typer.BadParameter(
-            "this command prints credentials; pass --show-sensitive (or -o json|yaml|id).",
-            param_hint="--show-sensitive",
-        )
+        fail_usage("This command prints credentials: pass --show-sensitive (or -o json|yaml|id).")
 
 
 def _versions(raw: str) -> list[int]:
