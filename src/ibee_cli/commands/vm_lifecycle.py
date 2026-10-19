@@ -177,7 +177,7 @@ def register_vm_commands(app: typer.Typer, spec: VmCommandSpec) -> None:
         def create_vm(
             ctx: typer.Context,
             name: str = typer.Argument(..., help="VM name (with --count, the base name)"),
-            site_id: Optional[str] = typer.Option(None, "--site-id", help="Site. See `ibee compute sites`."),
+            site_id: str = typer.Option(..., "--site-id", help="Site (required). See `ibee compute sites`."),
             plan_id: str = typer.Option(..., "--plan-id", help="Plan. See `ibee compute plans --vm-type cloud`."),
             template_id: str = typer.Option(..., "--template-id", help="Image. See `ibee compute images --vm-type cloud`."),
             os_type: Optional[str] = typer.Option(None, "--os-type", help="Default: the image's"),
@@ -228,7 +228,7 @@ def register_vm_commands(app: typer.Typer, spec: VmCommandSpec) -> None:
         def create_gpu(
             ctx: typer.Context,
             name: str = typer.Argument(..., help="VM name (with --count, the base name)"),
-            site_id: Optional[str] = typer.Option(None, "--site-id", help="Site. See `ibee compute sites`."),
+            site_id: str = typer.Option(..., "--site-id", help="Site (required). See `ibee compute sites`."),
             plan_id: str = typer.Option(..., "--plan-id", help="Plan. See `ibee compute plans --vm-type gpu`."),
             template_id: str = typer.Option(..., "--template-id", help="Image. See `ibee compute images --vm-type gpu`."),
             os_type: Optional[str] = typer.Option(None, "--os-type", help="Default: the image's"),

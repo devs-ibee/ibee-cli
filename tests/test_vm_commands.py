@@ -57,16 +57,25 @@ def test_create_name_and_shape_are_sent_as_typed(gw) -> None:
     """No client name rule, no plan selectable check: the server answers."""
     catalog(gw, selectable=False, pricing_status="unpriced")
     gw.on("POST", "compute/cloud-vms", (422, {"detail": [{"loc": ["body", "name"], "msg": "invalid hostname"}]}))
-    result = run(["vms", "create", "Web_01!", "--plan-id", "p1", "--template-id", "t1"])
+    result = run(["vms", "create", "Web_01!", "--site-id", "s1", "--plan-id", "p1", "--template-id", "t1"])
     assert result.exit_code == 16
     assert gw.last("POST", "compute/cloud-vms").json["name"] == "Web_01!"
     assert "Error: HTTP 422" in plain(result)
 
 
+def test_create_requires_a_site(gw) -> None:
+    """Contract 0.4.1: site_id is required on VM create; nothing is sent without it."""
+    for group in ("vms", "gpus"):
+        result = run([group, "create", "web", "--plan-id", "p1", "--template-id", "t1"])
+        assert result.exit_code == 2
+        assert "--site-id" in plain(result)
+    assert gw.requests("POST") == []
+
+
 def test_count_creates_numbered_vms_with_numbered_keys(gw) -> None:
     catalog(gw)
     gw.on("POST", "compute/cloud-vms", (202, ACCEPTED))
-    result = run(["vms", "create", "web", "--plan-id", "p1", "--template-id", "t1", "--count", "3", "--idempotency-key", "k"])
+    result = run(["vms", "create", "web", "--site-id", "s1", "--plan-id", "p1", "--template-id", "t1", "--count", "3", "--idempotency-key", "k"])
     assert result.exit_code == 0, result.output
     creates = gw.requests("POST")
     assert [c.json["name"] for c in creates] == ["web-1", "web-2", "web-3"]
@@ -76,7 +85,7 @@ def test_count_creates_numbered_vms_with_numbered_keys(gw) -> None:
 def test_gpu_create_takes_the_gpu_shape_from_the_plan(gw) -> None:
     catalog(gw, vm_type="gpu", gpu_count=1, gpu_model="L4")
     gw.on("POST", "compute/gpu-vms", (202, ACCEPTED))
-    assert run(["gpus", "create", "g", "--plan-id", "p1", "--template-id", "t1"]).exit_code == 0
+    assert run(["gpus", "create", "g", "--site-id", "s1", "--plan-id", "p1", "--template-id", "t1"]).exit_code == 0
     body = gw.last("POST", "compute/gpu-vms").json
     assert (body["gpu_count"], body["gpu_model"]) == (1, "L4")
 
@@ -85,7 +94,7 @@ def test_create_with_wait_polls_the_operation(gw) -> None:
     catalog(gw)
     gw.on("POST", "compute/cloud-vms", (202, ACCEPTED))
     gw.on("GET", "compute/operations/op-1", (200, operation("running")), (200, operation("succeeded")))
-    result = run(["vms", "create", "web", "--plan-id", "p1", "--template-id", "t1", "--wait"])
+    result = run(["vms", "create", "web", "--site-id", "s1", "--plan-id", "p1", "--template-id", "t1", "--wait"])
     assert result.exit_code == 0, result.output
     assert "Create succeeded for web" in plain(result)
 
