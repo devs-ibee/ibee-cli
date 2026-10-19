@@ -111,6 +111,13 @@ the command can be repeated without doing the write twice. `--wait` polls the
 operation every `--poll-interval` seconds (default 5) for up to `--timeout` seconds
 (default 1200).
 
+## Development
+
+`pip install -e ".[dev]" && pytest -q`. CI also runs `python scripts/check_sdk_calls.py`
+against `ibee` from PyPI and from ibee-python `main`: every SDK method the CLI calls
+(including the names the VM commands build from templates) must exist in the installed
+SDK, and the CLI must make no raw HTTP calls.
+
 ## Related
 
 - [Python SDK](https://github.com/devs-ibee/ibee-python): `pip install ibee`

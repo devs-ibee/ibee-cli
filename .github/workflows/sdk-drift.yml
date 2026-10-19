@@ -1,0 +1,39 @@
+name: SDK drift
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sdk-calls:
+    name: SDK calls exist (ibee from ${{ matrix.sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [pypi, main]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ibee from ibee-python main
+        if: matrix.sdk == 'main'
+        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@main"
+
+      # pypi: the newest ibee release in the CLI's dependency range.
+      - name: Install the CLI
+        run: pip install -e .
+
+      # Every SDK method the CLI calls (including the template-built VM commands)
+      # exists in the installed ibee, and the CLI makes no raw HTTP calls.
+      - name: Check the CLI's SDK calls
+        run: python scripts/check_sdk_calls.py
