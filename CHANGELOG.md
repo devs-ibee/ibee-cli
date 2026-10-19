@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.2
+
+### Changed
+
+- `vms create` and `gpus create` require `--site-id`: contract 0.4.1 makes `site_id`
+  required on VM create (the API refuses a create without it), and with ibee 0.5.2 a
+  create without it failed with a Python `TypeError` instead of a usage error.
+
+### Added
+
+- CI check (`scripts/check_sdk_calls.py`, workflow "SDK drift"): every SDK method the
+  CLI calls, including the names the VM commands build from templates, exists in the
+  installed `ibee` (from PyPI and from ibee-python `main`), and the CLI makes no raw
+  HTTP calls.
+
 ## 0.5.1
 
 ### Fixed
