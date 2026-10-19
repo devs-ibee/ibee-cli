@@ -29,7 +29,7 @@ def test_help_and_version() -> None:
     for group in ("billing", "block-storage", "buckets", "cdn", "secrets", "vms", "gpus", "console", "vpcs",
                   "reserved-ips", "firewalls", "load-balancers", "compute", "ops"):
         assert group in result.output
-    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.5.0"
+    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.5.1"
 
 
 def test_missing_token_and_workspace_are_usage_errors(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,9 +10,11 @@ import json
 
 import pytest
 from click import unstyle
-from _net_fixtures import FW, LB, NAT_CATALOG, RIP, RIP_CATALOG, V, WS, gateway_record, group, lb, pf_rule, plain, rip, run, vpc
+from _net_fixtures import (
+    FW, LB, NAT_CATALOG, RIP, RIP_CATALOG, V, WS, gateway_record, group, lb, pf_rule, plain, rip, run, subnet, vpc,
+)
 
-from ibee_cli.render import EXIT_CODES
+from ibee_cli.render import EXIT_CODES, identifiers
 
 BACKENDS = [{"type": "ip", "target": "10.0.0.5", "port": 80, "weight": 5}, {"target": "web.internal", "port": 8080}]
 
@@ -151,6 +153,34 @@ def test_load_balancer_create_sends_json_backends_unchanged(gw):
     result = run(["load-balancers", "create-l7", "web", "--protocol", "https", "--backends", json.dumps(BACKENDS)])
     assert _json(result)["lb_id"] == "lb-1"
     assert gw.last("POST", f"{LB}/l7").json == {"name": "web", "protocol": "https", "backends": BACKENDS}
+
+
+L7_RULES = [{"priority": 1, "path_prefix": "/api", "backends": BACKENDS[:1]}]
+
+
+@pytest.mark.parametrize(
+    "args, method, path, record, expected",
+    [
+        (["firewalls", "create", "web"], "POST", FW, group(), "fw-1"),
+        (["firewalls", "get", "fw-1"], "GET", f"{FW}/fw-1", group(), "fw-1"),
+        (["load-balancers", "create-l7", "web", "--backends", json.dumps(BACKENDS)], "POST", f"{LB}/l7",
+         lb(backends=BACKENDS, rules=L7_RULES), "lb-1"),
+        (["load-balancers", "create-l7", "web", "--backends", "[]"], "POST", f"{LB}/l7", lb(rules=[]), "lb-1"),
+        (["vpcs", "get", "vpc-1"], "GET", V, vpc(subnets=[subnet(), subnet(subnet_id="sub-2")]), "vpc-1"),
+    ],
+)
+def test_id_output_prints_the_object_id_not_its_nested_list(gw, args, method, path, record, expected):
+    gw.on(method, path, (200, record))
+
+    result = run(["-o", "id", *args])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [expected]
+
+
+def test_id_output_still_prints_one_id_per_collection_item():
+    groups = {"groups": [group(), group(firewall_group_id="fw-2")]}
+    assert identifiers(groups, "firewall_group_id") == ["fw-1", "fw-2"]
+    assert identifiers({"rules": group()["rules"]}) == ["sys-1", "r-1"]
 
 
 def test_load_balancer_repeatable_backend_and_routing(gw):

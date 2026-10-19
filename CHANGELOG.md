@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+
+- `-o id` printed nothing for `firewalls create`/`get` and `load-balancers
+  create-l7`/`get`/`update-l7`: the nested `rules` list was read as a list of
+  results. A response that carries the command's id field (`firewall_group_id`,
+  `lb_id`, `vpc_id`) now prints that id; `vpcs get` no longer prints the VPC id
+  once per subnet.
+
 ## 0.5.0
 
 The CLI is now a thin layer over the IBEE Python SDK 0.5.0: each command makes one

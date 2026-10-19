@@ -216,10 +216,14 @@ def to_yaml(payload: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _items(data: Any) -> list[Any]:
+def _items(data: Any, id_field: Optional[str] = None) -> list[Any]:
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
+        if id_field and data.get(id_field) not in (None, ""):
+            # One object that carries the command's id (a firewall group, a load
+            # balancer): its nested ``rules`` or ``subnets`` are not the result.
+            return [data]
         for key in COLLECTION_KEYS:
             if isinstance(data.get(key), list):
                 return data[key]
@@ -241,7 +245,7 @@ def _identifier(item: Any, id_field: Optional[str]) -> Optional[str]:
 def identifiers(payload: Any, id_field: Optional[str] = None) -> list[str]:
     """Identifiers for ``-o id``: one per item of a collection, or one for an object."""
     ids = []
-    for item in _items(to_data(payload)):
+    for item in _items(to_data(payload), id_field):
         value = _identifier(item, id_field)
         if value is not None:
             ids.append(value)
