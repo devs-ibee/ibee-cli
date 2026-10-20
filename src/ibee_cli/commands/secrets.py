@@ -12,8 +12,10 @@ from typing import Any, Optional
 
 import typer
 
-from ..context import fail_usage, get_client, get_settings
+from ..context import get_client, get_settings
 from ..helpers import compact_payload, confirm_destructive, field, parse_json, parse_value, response_items
+from ..helpers import require_show_sensitive as _require_show_sensitive
+from ..helpers import show_sensitive_option as _show_sensitive
 from ..render import cell, emit, handle_api_errors, print_json, print_table
 
 app = typer.Typer(help="Secret Store: stores, secrets, and application identities", no_args_is_help=True)
@@ -60,12 +62,6 @@ def _confirm_on_terminal(settings: Any, prompt: str, yes: bool) -> None:
         confirm_destructive(settings, prompt, yes)
 
 
-def _require_show_sensitive(settings: Any, show_sensitive: bool) -> None:
-    """The answer carries credentials: send only with --show-sensitive or -o json|yaml|id."""
-    if not (show_sensitive or settings.structured_output):
-        fail_usage("This command prints credentials: pass --show-sensitive (or -o json|yaml|id).")
-
-
 def _versions(raw: str) -> list[int]:
     try:
         return [int(part) for part in raw.split(",") if part.strip()]
@@ -75,10 +71,6 @@ def _versions(raw: str) -> list[int]:
 
 def _yes() -> Any:
     return typer.Option(False, "--yes", "-y", help="Skip confirmation")
-
-
-def _show_sensitive() -> Any:
-    return typer.Option(False, "--show-sensitive", help="Print the credentials in the answer")
 
 
 def _store_id() -> Any:

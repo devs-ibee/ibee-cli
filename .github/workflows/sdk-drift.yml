@@ -25,15 +25,41 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install ibee from ibee-python main
+      # main: ibee-python main, or its branch of the same name as this one when there is
+      # one (a CLI branch that needs a new SDK is checked against that SDK branch, as in
+      # the Tests workflow).
+      - name: Install ibee from ibee-python main (or the same-named branch)
         if: matrix.sdk == 'main'
-        run: pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@main"
+        env:
+          SDK_REF: ${{ github.head_ref || github.ref_name }}
+        run: |
+          ref=main
+          if git ls-remote --exit-code --heads https://github.com/devs-ibee/ibee-python.git "$SDK_REF" > /dev/null; then
+            ref="$SDK_REF"
+          fi
+          echo "Installing ibee from ibee-python $ref"
+          pip install "ibee @ git+https://github.com/devs-ibee/ibee-python.git@${ref}"
 
-      # pypi: the newest ibee release in the CLI's dependency range.
+      # pypi: the newest ibee release in the CLI's dependency range. The CLI is released
+      # after the SDK, so before that release there is nothing on PyPI to check against.
+      - name: Find an ibee release in the CLI's range
+        id: release
+        if: matrix.sdk == 'pypi'
+        run: |
+          spec=$(python -c 'import tomllib; print(next(d for d in tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"] if d.startswith("ibee")))')
+          if pip download --quiet --no-deps --dest "$RUNNER_TEMP/ibee" "$spec"; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No release matching $spec on PyPI yet; publish the SDK first. Skipping the PyPI check."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install the CLI
+        if: matrix.sdk == 'main' || steps.release.outputs.found == 'true'
         run: pip install -e .
 
       # Every SDK method the CLI calls (including the template-built VM commands)
       # exists in the installed ibee, and the CLI makes no raw HTTP calls.
       - name: Check the CLI's SDK calls
+        if: matrix.sdk == 'main' || steps.release.outputs.found == 'true'
         run: python scripts/check_sdk_calls.py

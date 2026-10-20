@@ -50,6 +50,27 @@ ibee secrets stores list
 ibee billing eligibility --resource-type cpu_vm
 ```
 
+### Container Registry
+
+```bash
+ibee registries name-check acme-apps
+ibee registries create acme-apps --sku REGISTRY-STORAGE-250GB   # 202 while provisioning
+ibee registries get REGISTRY_ID                                 # observed_state: ACTIVE
+ibee -o json registries tokens create REGISTRY_ID ci-push --permission PULL_PUSH
+ibee registries repositories list REGISTRY_ID
+ibee registries artifacts list REGISTRY_ID --repository api
+ibee registries vulnerabilities summary REGISTRY_ID
+ibee registries empty REGISTRY_ID --confirm-name acme-apps --yes
+ibee registries delete REGISTRY_ID --confirm-name acme-apps --yes
+```
+
+`registries` has one command per Container Registry API operation (`plan`, `tokens`,
+`repositories`, `artifacts`, `security`, `vulnerabilities`, `sboms`, `metrics`). An
+access token's username and secret are printed only by `tokens create` and
+`tokens rotate`, and only with `--show-sensitive` or `-o json|yaml` (`-o id` prints the
+token ID); otherwise nothing is sent. The registry service and Billing decide plans,
+names and states; the CLI prints their answer.
+
 `ibee --help` and `ibee GROUP --help` list every command. `gpus` takes the same
 commands as `vms`. Until the server resolves VM SKUs itself, `vms/gpus create` fills
 CPU, RAM, disk and OS from the plan and the image and sends the plan's billing SKU for
@@ -114,7 +135,8 @@ operation every `--poll-interval` seconds (default 5) for up to `--timeout` seco
 ## Development
 
 `pip install -e ".[dev]" && pytest -q`. CI also runs `python scripts/check_sdk_calls.py`
-against `ibee` from PyPI and from ibee-python `main`: every SDK method the CLI calls
+against `ibee` from PyPI (once a release in the CLI's range exists) and from
+ibee-python `main` (or its branch of the same name): every SDK method the CLI calls
 (including the names the VM commands build from templates) must exist in the installed
 SDK, and the CLI must make no raw HTTP calls.
 

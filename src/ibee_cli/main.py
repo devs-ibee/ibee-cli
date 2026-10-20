@@ -14,6 +14,7 @@ from .commands import (
     cdn,
     compute,
     console,
+    container_registry,
     firewalls,
     gpus,
     load_balancers,
@@ -49,6 +50,7 @@ app.add_typer(networking.app, name="vpcs")
 app.add_typer(reserved_ips.app, name="reserved-ips")
 app.add_typer(firewalls.app, name="firewalls")
 app.add_typer(load_balancers.app, name="load-balancers")
+app.add_typer(container_registry.app, name="registries")
 
 
 def _version_callback(value: bool) -> None:
