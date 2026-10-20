@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- `ibee registries`: Container Registry (contract 0.5.0), one command per API
+  operation, each making one SDK call and printing the server's answer:
+  `list`, `name-check`, `create`, `get`, `delete`, `visibility`, `empty`, `retry`,
+  `metrics`; `plan get|upgrade`; `tokens list|create|rotate|revoke`;
+  `repositories list|delete`; `artifacts list|delete|rescan`; `security get|update`;
+  `vulnerabilities summary|list`; `sboms list|get|download`. `delete` and `empty`
+  send `--confirm-name` as the API's `confirm_registry_name`; `plan upgrade` takes
+  `--idempotency-key` (the SDK sends a random `Idempotency-Key` otherwise).
+- Access-token secrets are printed only by `tokens create` and `tokens rotate`, behind
+  the existing secret display guard: `--show-sensitive` or `-o json|yaml|id` (which
+  prints the token ID only), otherwise exit 2 and nothing is sent.
+
+### Changed
+
+- Requires `ibee>=0.6.0,<0.7.0`.
+- The secret display guard (`--show-sensitive`) moved to `helpers.py` so Secret Store
+  and Container Registry share it; its behaviour is unchanged.
+- CI "SDK drift": the `main` leg uses the ibee-python branch named like this one when
+  it exists, and the `pypi` leg is skipped (with a notice) until an ibee release in
+  the CLI's range is on PyPI.
+
 ## 0.5.2
 
 ### Changed

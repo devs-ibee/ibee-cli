@@ -14,6 +14,7 @@ from typing import Any, Optional
 
 import typer
 
+from .context import fail_usage
 from .render import EXIT_FAILURE, EXIT_WAIT_TIMEOUT, print_json, print_structured
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "timed_out"})
@@ -54,6 +55,16 @@ def confirm_destructive(settings: Any, prompt: str, yes: bool = False) -> None:
     if yes or getattr(settings, "assume_yes", False):
         return
     typer.confirm(prompt, abort=True)
+
+
+def show_sensitive_option() -> Any:
+    return typer.Option(False, "--show-sensitive", help="Print the credentials in the answer")
+
+
+def require_show_sensitive(settings: Any, show_sensitive: bool) -> None:
+    """The answer carries credentials: send only with --show-sensitive or -o json|yaml|id."""
+    if not (show_sensitive or getattr(settings, "structured_output", False)):
+        fail_usage("This command prints credentials: pass --show-sensitive (or -o json|yaml|id).")
 
 
 def idempotency_key_option() -> Any:
@@ -231,7 +242,9 @@ __all__ = [
     "poll_interval_option",
     "print_json",
     "read_text_files",
+    "require_show_sensitive",
     "response_items",
+    "show_sensitive_option",
     "timeout_option",
     "wait_for_operation",
     "wait_option",

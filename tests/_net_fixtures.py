@@ -23,6 +23,7 @@ from ibee_cli.commands import (
     cdn,
     compute,
     console,
+    container_registry,
     firewalls,
     load_balancers,
     networking,
@@ -34,8 +35,8 @@ from ibee_cli.commands import (
 from ibee_cli.main import app
 
 COMMAND_MODULES = (
-    billing, block_storage, buckets, cdn, compute, console, firewalls, load_balancers, networking, ops,
-    reserved_ips, secrets, vm_lifecycle, context,
+    billing, block_storage, buckets, cdn, compute, console, container_registry, firewalls, load_balancers,
+    networking, ops, reserved_ips, secrets, vm_lifecycle, context,
 )
 
 WS = "973318"
