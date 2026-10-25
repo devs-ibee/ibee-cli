@@ -123,13 +123,31 @@ def test_list_table_json_and_all_pages(gw) -> None:
     assert gw.calls[-1].params["limit"] == "2"
 
 
-def test_delete_confirms_and_defaults_to_releasing_the_public_ip(gw) -> None:
-    gw.on("GET", "compute/cloud-vms/vm-1", (200, {"id": VM, "name": "web", "public_ip": "203.0.113.5"}))
-    gw.on("DELETE", "compute/cloud-vms/vm-1", (202, ACCEPTED))
+def test_delete_confirms_and_sends_no_public_ip_action_unless_chosen(gw) -> None:
+    # No default and no VM read: the API's answer for a VM with an automatic public IP is printed as is.
+    gw.on("DELETE", "compute/cloud-vms/vm-1", (400, {"error": "public_ip_action_required"}, {"x-request-id": "req-7"}))
     result = run(["vms", "delete", VM], input="n\n")
     assert result.exit_code == 1 and gw.writes() == []
-    assert run(["vms", "delete", VM, "--yes"]).exit_code == 0
+    result = run(["vms", "delete", VM, "--yes"])
+    assert result.exit_code == 10, result.output
+    assert "code: public_ip_action_required" in plain(result) and "request_id: req-7" in plain(result)
+    assert [(c.method, c.path) for c in gw.calls] == [("DELETE", "compute/cloud-vms/vm-1")]
+    assert "public_ip_action" not in (gw.last("DELETE", "compute/cloud-vms/vm-1").json or {})
+
+
+@pytest.mark.parametrize("args", [["--public-ip-action", "release"], ["--public-ip-action", "RELEASE"], ["--release-public-ip"]])
+def test_delete_sends_release_only_when_chosen(gw, args: list) -> None:
+    gw.on("DELETE", "compute/cloud-vms/vm-1", (202, ACCEPTED))
+    assert run(["vms", "delete", VM, "--yes", *args]).exit_code == 0
     assert gw.last("DELETE", "compute/cloud-vms/vm-1").json == {"public_ip_action": "release"}
+
+
+def test_delete_public_ip_action_takes_only_the_contract_choices(gw) -> None:
+    result = run(["vms", "delete", VM, "--yes", "--public-ip-action", "keep"])
+    assert result.exit_code == 2 and gw.calls == []
+    result = run(["vms", "delete", VM, "--yes", "--public-ip-action", "reserve", "--release-public-ip"])
+    assert result.exit_code == 2 and gw.calls == []
+    assert "only one of" in plain(result)
 
 
 def test_delete_reserve_passes_the_sku_through(gw) -> None:

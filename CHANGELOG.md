@@ -18,6 +18,11 @@
 
 ### Changed
 
+- `vms delete` / `gpus delete`: no default public IP action any more. New
+  `--public-ip-action release|reserve` (the contract's choices); `--release-public-ip`
+  and `--reserve-public-ip` stay as shorthands for it. Without a choice the request
+  carries no `public_ip_action` and the API's answer is printed as is: HTTP 400 (exit 10)
+  for a VM with an automatically assigned public IP. The VM is not read to decide.
 - Requires `ibee>=0.6.0,<0.7.0`.
 - The secret display guard (`--show-sensitive`) moved to `helpers.py` so Secret Store
   and Container Registry share it; its behaviour is unchanged.

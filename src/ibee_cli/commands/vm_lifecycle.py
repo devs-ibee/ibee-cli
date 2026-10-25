@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import sys
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, List, Optional
 
 import typer
@@ -30,6 +31,13 @@ from ..helpers import (
     wait_option,
 )
 from ..render import cell, handle_api_errors, print_json, print_table
+
+
+class PublicIpAction(str, Enum):
+    """The contract's choices for a VM's automatically assigned public IP on delete."""
+
+    release = "release"
+    reserve = "reserve"
 
 
 @dataclass(frozen=True)
@@ -278,8 +286,13 @@ def register_vm_commands(app: typer.Typer, spec: VmCommandSpec) -> None:
         ctx: typer.Context,
         vm_id: str = typer.Argument(..., help="VM ID"),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation"),
-        release_public_ip: bool = typer.Option(False, "--release-public-ip", help="Release an auto-assigned public IP (the default)"),
-        reserve_public_ip: bool = typer.Option(False, "--reserve-public-ip", help="Keep an auto-assigned public IP as a Reserved IP"),
+        public_ip_action: Optional[PublicIpAction] = typer.Option(
+            None, "--public-ip-action", case_sensitive=False,
+            help="What to do with an automatically assigned public IP: release, or reserve it as a Reserved IP. "
+            "No default: the API refuses to delete such a VM (HTTP 400) until you choose",
+        ),
+        release_public_ip: bool = typer.Option(False, "--release-public-ip", help="Same as --public-ip-action release"),
+        reserve_public_ip: bool = typer.Option(False, "--reserve-public-ip", help="Same as --public-ip-action reserve"),
         reserved_ip_label: Optional[str] = typer.Option(None, "--reserved-ip-label", help="Label for the Reserved IP (default: the VM name)"),
         reserved_ip_billing_catalog: Optional[str] = typer.Option(None, "--reserved-ip-billing-catalog", help="Reserved IP SKU JSON"),
         reserved_ip_billing_catalog_file: Optional[str] = typer.Option(None, "--reserved-ip-billing-catalog-file"),
@@ -288,9 +301,12 @@ def register_vm_commands(app: typer.Typer, spec: VmCommandSpec) -> None:
         poll_interval: float = poll_interval_option(),
         idempotency_key: Optional[str] = idempotency_key_option(),
     ) -> None:
-        """Delete a VM (async). An auto-assigned public IP is released unless --reserve-public-ip."""
-        if reserve_public_ip and release_public_ip:
-            raise typer.BadParameter("Use only one of --reserve-public-ip or --release-public-ip.")
+        """Delete a VM (async). A VM with an automatically assigned public IP needs --public-ip-action release|reserve: without it the API refuses the delete with HTTP 400, which is printed as is."""
+        chosen = {action for action, flag in (("release", release_public_ip), ("reserve", reserve_public_ip)) if flag}
+        if public_ip_action is not None:
+            chosen.add(public_ip_action.value)
+        if len(chosen) > 1:
+            raise typer.BadParameter("Use only one of --public-ip-action, --release-public-ip or --reserve-public-ip.")
         catalog = load_json_input(reserved_ip_billing_catalog, reserved_ip_billing_catalog_file, "reserved-ip-billing-catalog")
         confirm_destructive(get_settings(ctx), f"Delete {label} '{vm_id}'?", yes)
         settings, client, method = _sdk(ctx, spec, "delete_{}")
@@ -298,7 +314,7 @@ def register_vm_commands(app: typer.Typer, spec: VmCommandSpec) -> None:
             vm_id,
             **compact_payload(
                 idempotency_key=idempotency_key,
-                public_ip_action="reserve" if reserve_public_ip else "release" if release_public_ip else None,
+                public_ip_action=next(iter(chosen), None),
                 reserved_ip_label=reserved_ip_label,
                 reserved_ip_billing_catalog=catalog,
             ),

@@ -36,7 +36,7 @@ ibee vms create web-1 --site-id SITE_ID --plan-id PLAN_ID --template-id IMAGE_ID
 ibee vms list
 ibee vms get VM_ID
 ibee vms stop VM_ID --wait
-ibee vms delete VM_ID --yes
+ibee vms delete VM_ID --public-ip-action release --yes
 
 ibee ops wait OPERATION_ID
 ibee vpcs list
