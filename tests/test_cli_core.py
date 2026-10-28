@@ -21,14 +21,17 @@ EDGE_402 = {
     "admission_context_id": "adm-1",
 }
 REQ = {"x-request-id": "req-123"}
+GROUPS = ("vms", "gpus", "ops", "compute", "block-storage", "buckets", "cdn", "secrets", "vpcs", "reserved-ips",
+          "firewalls", "load-balancers", "registries")
 
 
 def test_help_and_version() -> None:
     result = runner.invoke(app, ["--help"])
     assert result.exit_code == 0
-    for group in ("billing", "block-storage", "buckets", "cdn", "secrets", "vms", "gpus", "console", "vpcs",
-                  "reserved-ips", "firewalls", "load-balancers", "compute", "ops"):
+    for group in GROUPS:
         assert group in result.output
+    for gone in ("billing", "console"):
+        assert runner.invoke(app, [gone, "--help"]).exit_code == 2
     assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.6.0"
 
 
@@ -41,11 +44,9 @@ def test_missing_token_and_workspace_are_usage_errors(monkeypatch: pytest.Monkey
     assert result.exit_code == 2 and "No workspace" in result.output
 
 
-def test_bad_endpoint_and_token_environment_are_usage_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bad_endpoint_is_a_usage_error(monkeypatch: pytest.MonkeyPatch) -> None:
     result = runner.invoke(app, [*BASE, "--base-url", "http://api.example.test/v1", "compute", "sites"])
     assert result.exit_code == 2 and "Invalid IBEE base URL" in result.output
-    result = runner.invoke(app, ["--token", "ibee_dev_key_x", "--workspace", WS, "compute", "sites"])
-    assert result.exit_code == 2 and "does not match" in result.output
     monkeypatch.setenv("IBEE_ENV", "staging")
     assert runner.invoke(app, [*BASE, "compute", "sites"]).exit_code == 2
 
@@ -61,6 +62,14 @@ def test_endpoint_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     assert base(endpoint="https://endpoint.example.test/v1") == "https://endpoint.example.test/v1"
     monkeypatch.setenv("IBEE_ENV", "dev")
     assert base() == "https://api.ibee.co.in/v1"
+
+
+def test_workspace_is_sent_as_workspace_id(gw) -> None:
+    gw.on("GET", "compute/sites", {"sites": [], "count": 0})
+    assert run(["compute", "sites"]).exit_code == 0
+    assert gw.last("GET", "compute/sites").params == {"workspace_id": [WS]}
+    result = runner.invoke(app, ["--token", "t", "-w", "42", "compute", "sites"])
+    assert result.exit_code == 0 and gw.calls[-1].params == {"workspace_id": ["42"]}
 
 
 def test_edge_denial_prints_every_field_and_exits_12(gw) -> None:
@@ -83,6 +92,9 @@ def test_product_service_error_and_unknown_code(gw) -> None:
     result = run(["compute", "plans", "--vm-type", "cloud"])
     assert result.exit_code == 15
     assert "code: RESOURCE_LIMIT_REACHED" in plain(result) and "message: Your plan allows 2." in plain(result)
+    gw.on("DELETE", "compute/cloud-vms/vm-1", (409, {"detail": {"code": "VM_COMMITTED", "message": "Committed until 2026-11-29."}}))
+    result = run(["vms", "delete", "vm-1", "--yes"])
+    assert result.exit_code == 15 and "code: VM_COMMITTED" in plain(result)
 
 
 @pytest.mark.parametrize(("status", "code"), sorted(EXIT_CODES.items()) + [(500, 19), (503, 19), (418, 1)])
@@ -107,6 +119,12 @@ def test_json_errors(gw) -> None:
     }
 
 
+def test_text_body_error(gw) -> None:
+    gw.on("GET", "compute/sites", (502, "Bad gateway"))
+    result = run(["compute", "sites"])
+    assert result.exit_code == 19 and "message: Bad gateway" in plain(result)
+
+
 def test_network_error_exits_4_with_a_retry_hint(gw) -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("slow", request=request)
@@ -122,3 +140,14 @@ def test_keyed_write_server_error_prints_the_retry_key(gw) -> None:
     result = run(["vms", "start", "vm-1", "--idempotency-key", "k-2"])
     assert result.exit_code == 19
     assert "Retry safely with: --idempotency-key k-2" in plain(result)
+
+
+def test_response_that_does_not_match_the_contract_is_printed_as_received(gw) -> None:
+    """The SDK cannot parse it: the body is shown as sent (CORS reads return S3-cased keys today)."""
+    sent = {"bucket_name": "b", "rules": [{"AllowedOrigins": ["*"], "AllowedMethods": ["GET"]}]}
+    gw.on("GET", "object-storage/buckets/b/cors", (200, sent, REQ))
+    result = run(["-o", "json", "buckets", "cors", "get", "b"])
+    assert result.exit_code == 1
+    error = json.loads(result.output)["error"]
+    assert error["body"] == sent and error["request_id"] == "req-123"
+    assert error["message"].startswith("response not parsed")

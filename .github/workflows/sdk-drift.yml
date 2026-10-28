@@ -58,8 +58,8 @@ jobs:
         if: matrix.sdk == 'main' || steps.release.outputs.found == 'true'
         run: pip install -e .
 
-      # Every SDK method the CLI calls (including the template-built VM commands)
-      # exists in the installed ibee, and the CLI makes no raw HTTP calls.
+      # Every SDK method the CLI calls exists in the installed ibee, every SDK method
+      # has a command, and the CLI makes no raw HTTP calls.
       - name: Check the CLI's SDK calls
         if: matrix.sdk == 'main' || steps.release.outputs.found == 'true'
         run: python scripts/check_sdk_calls.py
