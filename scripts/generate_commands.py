@@ -15,9 +15,6 @@ printing the server's answer:
 * destructive commands (every DELETE plus ``CONFIRM``) ask for confirmation unless
   ``--yes``.
 
-``vms/gpus backup-policy disable`` send ``{}`` as the body (``EMPTY_BODY``): the contract
-declares none but the server answers 422 without one.
-
 The one convenience is the VM creates (``vms create``, ``gpus create``): besides
 ``--billing-catalog JSON`` they take ``--billing-interval HOURLY|MONTHLY``, which builds
 ``billing_catalog`` from the plan's entry in ``GET /compute/plans`` (see
@@ -324,10 +321,6 @@ CONFIRM = {
 
 #: The VM creates: ``billing_catalog`` may be built from the plan (``--billing-interval``).
 VM_CREATES = {"createCloudVm": "cloud", "createGpuVm": "gpu"}
-
-#: Operations the contract gives no request body but the server answers 422 without one:
-#: the SDK takes ``request=`` for them and the CLI sends ``{}`` (no options).
-EMPTY_BODY = {"disableCloudVmBackups", "disableGpuVmBackups"}
 
 #: Header parameters and the SDK keyword the generated SDK gives them.
 HEADER_KWARGS = {"x-idempotency-key": "idempotency_key", "idempotency-key": "idempotency_key"}
@@ -663,7 +656,7 @@ def render_command(c: Command) -> str:
     lines.append("    client = sdk(ctx)")
     # The global --workspace is every operation's workspace_id, sent explicitly (the SDK's
     # default does not reach its streaming downloads).
-    kwargs = ["workspace_id=workspace(ctx)"] + (["request={}"] if c.operation_id in EMPTY_BODY else [])
+    kwargs = ["workspace_id=workspace(ctx)"]
     for f in c.fields:
         if f.location == "path":
             continue

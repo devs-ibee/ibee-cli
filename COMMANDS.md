@@ -2,7 +2,7 @@
 
 # Command reference
 
-One `ibee` command per operation of the IBEE public API contract 0.6.2 (225 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
+One `ibee` command per operation of the IBEE public API contract 0.6.3 (225 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
 
 ## `ibee vms`
 

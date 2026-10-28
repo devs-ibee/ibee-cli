@@ -29,7 +29,7 @@ CONFIRMED_POSTS = {
     "restoreCloudVmSnapshot", "restoreCloudVmBackup", "detachCloudVmVolume",
     "restoreGpuVmSnapshot", "restoreGpuVmBackup", "detachGpuVmVolume",
 }
-#: The 23 operations contract 0.6.2 removed and the commands that called them.
+#: The 23 operations contract 0.6.2 removed (from 0.5.0) and the commands that called them.
 REMOVED_COMMANDS = [
     "vms mount-guidance-acknowledge", "gpus mount-guidance-acknowledge", "block-storage attach", "block-storage detach",
     "billing eligibility", "console close", "console create", "console get", "vms backups create", "gpus backups create",
@@ -124,7 +124,7 @@ TREE = command_tree()
 
 def test_one_command_per_operation() -> None:
     assert len(OPS) == 225
-    assert CONTRACT["info"]["version"] == "0.6.2"
+    assert CONTRACT["info"]["version"] == "0.6.3"
     assert set(TREE) == {op.id for op in OPS}
 
 
