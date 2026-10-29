@@ -110,12 +110,12 @@ def test_vm_writes_carry_an_idempotency_key(gw) -> None:
 
 
 @pytest.mark.parametrize("group", ["vms", "gpus"])
-def test_backups_disable_sends_no_body(gw, group) -> None:
-    """Contract 0.6.3: the operation has no request body, and the server accepts none."""
+def test_backups_disable_sends_an_empty_object(gw, group) -> None:
+    """Contract 0.7.1: the body is an empty JSON object; the production engine refuses a request with no body."""
     path = f"compute/{'cloud' if group == 'vms' else 'gpu'}-vms/vm-1/backups/disable"
     gw.on("POST", path, (418, {"error": "teapot"}))
     run([group, "backup-policy", "disable", "vm-1"])
-    assert gw.last("POST", path).json is None
+    assert gw.last("POST", path).json == {}
 
 
 # ---------------------------------------------------------------------------

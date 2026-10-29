@@ -440,6 +440,7 @@ class Command:
     collection: Optional[str] = None
     id_field: Optional[str] = None
     vm_create: Optional[str] = None
+    empty_body: bool = False  # the body is an empty JSON object: send `{}` (the server refuses no body)
 
     @property
     def function(self) -> str:
@@ -544,6 +545,7 @@ def build(contract: Contract) -> list:
             if list(content) != ["application/json"]:
                 raise SystemExit(f"{op_id}: only JSON request bodies are supported ({list(content)})")
             props, required = contract.properties(content["application/json"].get("schema"))
+            command.empty_body = not props
             ordered = sorted(props.items(), key=lambda item: item[0] not in required)
             for name, schema in ordered:
                 command.fields.append(
@@ -657,6 +659,8 @@ def render_command(c: Command) -> str:
     # The global --workspace is every operation's workspace_id, sent explicitly (the SDK's
     # default does not reach its streaming downloads).
     kwargs = ["workspace_id=workspace(ctx)"]
+    if c.empty_body:
+        kwargs.append("request={}")
     for f in c.fields:
         if f.location == "path":
             continue

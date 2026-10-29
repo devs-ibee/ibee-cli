@@ -2,7 +2,7 @@
 
 ## 0.6.0
 
-The CLI follows the public API contract 0.6.3 (225 operations) one to one, on the
+The CLI follows the public API contract 0.7.1 (225 operations) one to one, on the
 Python SDK 0.6.0, which is now the plain generated client. Every command is one
 contract operation: it makes that operation's one SDK call and prints the server's
 answer. All client-side workflow and rule layers are gone; the API (through
@@ -11,6 +11,7 @@ the Container Registry commands prepared for contract 0.5.0.
 
 ### Changed
 
+- `vms backup-policy disable` / `gpus backup-policy disable` send an empty JSON object body, as contract 0.7.1 declares; the production virtualization engine refuses a request with no body.
 - Requires `ibee>=0.6.0,<0.7`.
 - Contract 0.6.3: `buckets credentials create --permission-type` lists the contract's
   values (`admin_rw`, `admin_ro`, `object_rw`, `object_ro`) in its help (the server
