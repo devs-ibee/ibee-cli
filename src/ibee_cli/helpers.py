@@ -1,238 +1,73 @@
-"""Shared helpers: confirmations, idempotency keys, ``--wait`` and input parsing.
+"""What the generated commands share: the SDK client, request arguments and confirmations.
 
-Compute writes return ``202`` with an ``operation_id``. ``--wait`` polls
-``GET /compute/operations/{operation_id}`` until the operation reaches a terminal
-status of the contract (``succeeded``, ``failed``, ``cancelled``, ``timed_out``).
+Nothing here decides anything the server decides: options the user left out are not
+sent, JSON options are parsed as given, and the server's answer is printed.
 """
 
 from __future__ import annotations
 
 import json
-import time
-from collections.abc import Mapping, Sequence
-from typing import Any, Optional
+import sys
+from typing import Any, Iterable, Optional
 
 import typer
 
-from .render import EXIT_FAILURE, EXIT_WAIT_TIMEOUT, print_json, print_structured
-
-TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "timed_out"})
-DEFAULT_WAIT_TIMEOUT_SECONDS = 1200.0
-DEFAULT_POLL_INTERVAL_SECONDS = 5.0
-
-# Indirections so tests can replace time.
-_sleep = time.sleep
-_clock = time.monotonic
+from . import context
 
 
-def field(value: Any, *names: str) -> Any:
-    """Read a response field from a generated model or a mapping (enum values unwrapped)."""
-    for name in names:
-        if isinstance(value, Mapping) and name in value:
-            found = value[name]
-        elif hasattr(value, name):
-            found = getattr(value, name)
+def sdk(ctx: typer.Context) -> Any:
+    """The SDK client for this invocation's global options."""
+    return context.get_client(context.get_settings(ctx))
+
+
+def workspace(ctx: typer.Context) -> str:
+    """The global ``--workspace`` (``IBEE_WORKSPACE_ID``): every operation's ``workspace_id``."""
+    return context.get_settings(ctx).workspace
+
+
+def compact(**values: Any) -> dict:
+    """The options the user gave (``None`` means left out and is not sent; false and zero are)."""
+    return {key: value for key, value in values.items() if value is not None}
+
+
+def json_arg(value: Optional[str], option: str) -> Any:
+    """A JSON option's value: JSON text, ``@FILE`` (the file's JSON) or ``@-`` (JSON on stdin)."""
+    if value is None:
+        return None
+    text = value
+    if value.startswith("@"):
+        source = value[1:]
+        if source == "-":
+            text = sys.stdin.read()
         else:
-            continue
-        return getattr(found, "value", found)
-    return None
+            try:
+                with open(source, encoding="utf-8") as handle:
+                    text = handle.read()
+            except OSError as exc:
+                context.fail_usage(f"{option}: cannot read {source}: {exc.strerror or exc}")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        context.fail_usage(f"{option} is not valid JSON: {exc}")
+    return None  # pragma: no cover - fail_usage always raises
 
 
-def response_items(result: Any, *wrapper_fields: str) -> list[Any]:
-    """The items of a list response (a bare list, or a wrapper with one of ``wrapper_fields``)."""
-    if isinstance(result, Sequence) and not isinstance(result, (str, bytes, bytearray)):
-        return list(result)
-    for name in wrapper_fields:
-        items = field(result, name)
-        if items is not None:
-            return list(items)
-    return []
+def confirm(ctx: typer.Context, yes: bool, prompt: str) -> None:
+    """Ask before a destructive command unless ``--yes`` (or the global ``--yes``/``IBEE_ASSUME_YES``).
 
-
-def confirm_destructive(settings: Any, prompt: str, yes: bool = False) -> None:
-    """Proceed with ``--yes`` (command or global) or ``IBEE_ASSUME_YES``; otherwise ask. Declining exits 1."""
-    if yes or getattr(settings, "assume_yes", False):
+    Declining, or no answer on a closed stdin, exits 1 and sends nothing.
+    """
+    if yes or context.get_settings(ctx).assume_yes:
         return
     typer.confirm(prompt, abort=True)
 
 
-def idempotency_key_option() -> Any:
-    return typer.Option(
-        None, "--idempotency-key", metavar="KEY", help="Reuse a key to retry safely (default: a new key per call)"
-    )
+def write_bytes(chunks: Iterable[bytes]) -> None:
+    """Write a binary answer (a downloaded document) to stdout unchanged."""
+    stream = getattr(sys.stdout, "buffer", sys.stdout)
+    for chunk in chunks:
+        stream.write(chunk)
+    stream.flush()
 
 
-def wait_option(what: str = "the operation finishes") -> Any:
-    return typer.Option(False, "--wait", help=f"Poll until {what}")
-
-
-def timeout_option() -> Any:
-    return typer.Option(
-        DEFAULT_WAIT_TIMEOUT_SECONDS, "--timeout", metavar="SECONDS", help="Seconds to wait (with --wait)"
-    )
-
-
-def poll_interval_option() -> Any:
-    return typer.Option(
-        DEFAULT_POLL_INTERVAL_SECONDS, "--poll-interval", metavar="SECONDS", help="Seconds between polls (with --wait)"
-    )
-
-
-def wait_for_operation(client: Any, operation_id: str, timeout: float, interval: float) -> Any:
-    """Poll the operation until it is terminal; ``None`` when ``timeout`` passes first."""
-    deadline = _clock() + timeout
-    while True:
-        operation = client.cloud_vms.get_compute_operation(operation_id)
-        if str(field(operation, "status") or "").lower() in TERMINAL_STATUSES:
-            return operation
-        if _clock() + interval > deadline:
-            return None
-        _sleep(interval)
-
-
-def finish_operation(
-    settings: Any,
-    client: Any,
-    result: Any,
-    action: str,
-    ident: str,
-    wait: bool = False,
-    timeout: float = DEFAULT_WAIT_TIMEOUT_SECONDS,
-    poll_interval: float = DEFAULT_POLL_INTERVAL_SECONDS,
-) -> None:
-    """Print an accepted operation, or with ``wait`` its final state.
-
-    Exit 1 when the operation ends ``failed``, ``cancelled`` or ``timed_out``; exit 3
-    when ``timeout`` passes while it is still running.
-    """
-    op_id = field(result, "operation_id")
-    mode = getattr(settings, "output", None)
-    if not wait or not op_id:
-        if mode in ("json", "yaml", "id"):
-            print_structured(result, mode, id_field="operation_id")
-        else:
-            tail = f" (operation {op_id}; poll: ibee ops wait {op_id})" if op_id else ""
-            typer.secho(f"{action} accepted for {ident}{tail}", fg=typer.colors.GREEN)
-        return
-    final = wait_for_operation(client, op_id, timeout, poll_interval)
-    if final is None:
-        typer.secho(
-            f"{action} still running for {ident} after {timeout:g}s; resume with: ibee ops wait {op_id}",
-            fg=typer.colors.YELLOW,
-            err=True,
-        )
-        raise typer.Exit(code=EXIT_WAIT_TIMEOUT)
-    status = str(field(final, "status")).lower()
-    if mode in ("json", "yaml", "id"):
-        print_structured(final, mode, id_field="operation_id")
-    elif status == "succeeded":
-        typer.secho(f"{action} succeeded for {ident} (operation {op_id}).", fg=typer.colors.GREEN)
-    if status != "succeeded":
-        detail = ": ".join(str(part) for part in (field(final, "error_code"), field(final, "error_message")) if part)
-        typer.secho(
-            f"{action} {status} for {ident} (operation {op_id}){': ' + detail if detail else ''}",
-            fg=typer.colors.RED,
-            err=True,
-        )
-        raise typer.Exit(code=EXIT_FAILURE)
-
-
-def load_json_input(value: Optional[str], path: Optional[str], option: str) -> Optional[dict]:
-    """A JSON object from ``--<option> JSON`` or ``--<option>-file PATH`` (not both)."""
-    if value is not None and path is not None:
-        raise typer.BadParameter(f"Use only one of --{option} or --{option}-file.")
-    if path is not None:
-        try:
-            with open(path, encoding="utf-8") as handle:
-                value = handle.read()
-        except OSError as exc:
-            raise typer.BadParameter(f"Cannot read --{option}-file {path}: {exc.strerror or exc}")
-    if value is None:
-        return None
-    return parse_json_object(value, f"--{option}")
-
-
-def read_text_files(paths: Optional[Sequence[str]], option: str) -> list[str]:
-    """Contents of each ``--<option> PATH`` (for example public SSH key files), stripped."""
-    values: list[str] = []
-    for path in paths or []:
-        try:
-            with open(path, encoding="utf-8") as handle:
-                values.append(handle.read().strip())
-        except OSError as exc:
-            raise typer.BadParameter(f"Cannot read {option} {path}: {exc.strerror or exc}")
-    return values
-
-
-def parse_key_value_pairs(raw: Optional[Sequence[str]], option: str) -> Optional[dict]:
-    """``KEY=VALUE`` options (repeatable) as a dict; ``None`` when none are given."""
-    if not raw:
-        return None
-    out: dict[str, str] = {}
-    for item in raw:
-        key, sep, value = item.partition("=")
-        if not sep or not key.strip():
-            raise typer.BadParameter(f"{option} expects KEY=VALUE, got {item!r}.")
-        out[key.strip()] = value
-    return out
-
-
-def parse_value(raw: str) -> dict:
-    """A secret value: a JSON object, or comma-separated ``key=value`` pairs."""
-    raw = (raw or "").strip()
-    if raw.startswith("{"):
-        return parse_json_object(raw, "value")
-    out: dict[str, str] = {}
-    for pair in raw.split(",") if raw else []:
-        key, sep, val = pair.partition("=")
-        if not sep:
-            raise typer.BadParameter(f"expected key=value pairs, got {pair!r}")
-        out[key.strip()] = val.strip()
-    return out
-
-
-def parse_json(raw: str, option_name: str) -> Any:
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise typer.BadParameter(f"{option_name} is not valid JSON: {exc}")
-
-
-def parse_json_object(raw: str, option_name: str) -> dict:
-    data = parse_json(raw, option_name)
-    if not isinstance(data, dict):
-        raise typer.BadParameter(f"{option_name} must be a JSON object")
-    return data
-
-
-def parse_json_array(raw: str, option_name: str) -> list:
-    data = parse_json(raw, option_name)
-    if not isinstance(data, list):
-        raise typer.BadParameter(f"{option_name} must be a JSON array")
-    return data
-
-
-def compact_payload(**values: Any) -> dict:
-    """Drop options the user did not supply (``None``), keeping false and zero."""
-    return {key: value for key, value in values.items() if value is not None}
-
-
-__all__ = [
-    "compact_payload",
-    "confirm_destructive",
-    "field",
-    "finish_operation",
-    "idempotency_key_option",
-    "load_json_input",
-    "parse_json_array",
-    "parse_json_object",
-    "parse_key_value_pairs",
-    "parse_value",
-    "poll_interval_option",
-    "print_json",
-    "read_text_files",
-    "response_items",
-    "timeout_option",
-    "wait_for_operation",
-    "wait_option",
-]
+__all__ = ["compact", "confirm", "json_arg", "sdk", "workspace", "write_bytes"]

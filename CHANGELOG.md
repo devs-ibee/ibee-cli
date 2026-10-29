@@ -1,5 +1,105 @@
 # Changelog
 
+## 0.6.0
+
+The CLI follows the public API contract 0.7.1 (225 operations) one to one, on the
+Python SDK 0.6.0, which is now the plain generated client. Every command is one
+contract operation: it makes that operation's one SDK call and prints the server's
+answer. All client-side workflow and rule layers are gone; the API (through
+portal-client-api) runs the portal's checks and answers. This release also carries
+the Container Registry commands prepared for contract 0.5.0.
+
+### Changed
+
+- `vms backup-policy disable` / `gpus backup-policy disable` send an empty JSON object body, as contract 0.7.1 declares; the production virtualization engine refuses a request with no body.
+- Requires `ibee>=0.6.0,<0.7`.
+- Contract 0.6.3: `buckets credentials create --permission-type` lists the contract's
+  values (`admin_rw`, `admin_ro`, `object_rw`, `object_ro`) in its help (the server
+  checks the value), and `block-storage plans` reads `included_usage.iops` and
+  `throughput` as the text the catalog sends.
+- The commands are generated from `contract/ibee-cloud.yaml` (a copy of the contract)
+  by `scripts/generate_commands.py`, with the same command names as before where the
+  operation still exists. Arguments and options now map 1:1 to the operation's fields:
+  path parameters are arguments, and every query parameter, header and request-body
+  field is an option of the same name (`--ssh-key-ids`, `--tags`, `--is-public`,
+  `--selected-data-volume-ids`, `--repository-name`, `--confirm-registry-name`, ...);
+  the contract's required fields are required options. In particular:
+  - body fields that were arguments are options: `vms/gpus create --name`,
+    `buckets create --name`, `snapshots create --name`, `vpcs create --name`,
+    `registries create --registry-name`, `secrets stores create --name`,
+    `vms volume-attach VM_ID --volume-id`, `reserved-ips attach/move --vm-id`, ...;
+  - path parameters that were options are arguments: `secrets list STORE_ID`,
+    `secrets create STORE_ID`, `secrets identities list|create STORE_ID`, ...;
+  - objects and arrays of objects take JSON, with `@FILE` or `@-` (stdin) to read it
+    (`--billing-catalog`, `--schedule`, `--rules`, `--secrets`, `--health-check`,
+    ...); the per-field shorthands built on them are gone (`--frequency`/`--hour`/...,
+    `--retention-mode`/`--retention-days`, `--target-*`, `--backend`, `--rule`,
+    `--port`/`--source`, `--*-file`).
+- `vms create` / `gpus create` send what you give: CPU, RAM, disk and OS are no longer
+  filled in from the plan and the image, and `billing_catalog` is either
+  `--billing-catalog JSON` or `--billing-interval HOURLY|MONTHLY` (was `--billing-term`,
+  with no default now). `--billing-interval` is the one convenience left: it copies the
+  `--plan-id` plan's `billing_catalog` from `GET /compute/plans` and merges in the whole
+  `billing_options` entry for that interval, as the portal does.
+- `vms/gpus resize` takes `--cpu`, `--ram-mb` and `--disk-gb` only (contract 0.6.2+);
+  `--plan-id`, `--billing-term`, `--billing-catalog` and `--windows-license` are gone.
+- Output: JSON by default for every command, as the server sent it (no client-side
+  nulls for fields it left out); `-o table` renders any answer (one row per list item
+  or per field), `-o yaml` and `-o id` as before (`-o id` prints, for a list, the value
+  the API takes for each item). An empty answer (204) prints nothing.
+- The global `--workspace` is sent as every operation's `workspace_id` explicitly.
+- Errors are read from the response body and headers as sent (status, code, message,
+  request id, plus billing reason and admission context id when present).
+- CI "SDK drift" (`scripts/check_sdk_calls.py`) also fails when an SDK method has no
+  command; the Tests workflow checks that the commands match the contract
+  (`scripts/generate_commands.py --check`). The `main` leg uses the ibee-python branch
+  named like this one when it exists, and the `pypi` leg is skipped (with a notice)
+  until an ibee release in the CLI's range is on PyPI.
+
+### Added
+
+- Commands for the 29 operations contract 0.6.2 adds (0.6.3 adds none): `buckets lifecycle get|set|delete`,
+  `buckets cors get|set|delete`, `buckets object-lock get|set`,
+  `buckets notifications get|set|delete`, `buckets domains get|add|remove`,
+  `buckets metrics`, `buckets credentials delete` (`revoke` is now
+  `POST .../credentials/{id}/revoke`), `cdn metrics`, `vms/gpus snapshots list-all`,
+  `vms/gpus backups list-all|delete`, `compute snapshot-storage-plans`,
+  `compute backup-storage-plans`, `block-storage plans`, `reserved-ips convert`,
+  `reserved-ips attach-direct`, `vpcs nat set-public-ip`.
+- Options for fields the commands did not offer before, for example
+  `vms list --search --sort-by --sort-direction --status --date`,
+  `compute plans --include-availability --os-type --requires-public-ip`,
+  `vpcs nodes attach --requested-private-ip`, `vpcs forwarding create|update
+  --target-type --target-vm-ids`.
+- `ibee registries`: Container Registry, one command per operation: `list`,
+  `name-check`, `create`, `get`, `delete`, `visibility`, `retry`, `metrics`;
+  `plan get|upgrade`; `tokens list|create|rotate|revoke`; `repositories list|delete`;
+  `artifacts list|delete|rescan`; `security get|update`; `vulnerabilities summary|list`;
+  `sboms list|get|download` (the document goes to stdout).
+- `COMMANDS.md`: every command with its operation, generated from the contract.
+
+### Removed
+
+- Commands for the 23 operations contract 0.6.2 removes (0.6.3 removes none): `vms/gpus resize-plan`,
+  `vms/gpus resize-root-disk` (use `resize`), `vms/gpus mount-guidance-acknowledge`,
+  `vms/gpus backups create`, `vms/gpus backup-policy reschedule`,
+  `console create|get|close`, `block-storage attach|detach` (use
+  `vms/gpus volume-attach|volume-detach`), `cdn generate-url`, `vpcs subnets update`,
+  `secrets stores update`, `secrets identities update`,
+  `secrets identities scopes update`, `secrets patch-value`, `registries empty`,
+  `billing eligibility`.
+- Client-side workflows: `--wait`, `--timeout`, `--poll-interval` and `ops wait` (poll
+  with `ops get OPERATION_ID`; exit code 3 is gone), `vms/gpus create --count` and
+  `--instance-name`, `--all` page walking, `vpcs forwarding enable|disable` (use
+  `vpcs forwarding update --enabled/--no-enabled`), the `--release-public-ip` /
+  `--reserve-public-ip` shorthands (use `--public-ip-action`), the `--show-sensitive`
+  guard on secret-bearing answers, and the password prompts of `access-update` (use
+  `--new-password`).
+- Confirmations that depended on option values (making a bucket private, removing SSH
+  keys) and the terminal-only ones on `unarchive`/`enable`/`disable`; every DELETE and
+  the revoke, archive, purge, restore and volume-detach commands still ask unless
+  `--yes`.
+
 ## 0.5.2
 
 ### Changed

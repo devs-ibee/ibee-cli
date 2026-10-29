@@ -8,7 +8,13 @@ from typing import Optional
 
 import typer
 from ibee import Ibee, IbeeEnvironment
-from ibee.client import IbeeValidationError
+
+try:  # the SDK's configuration error (bad base URL), raised before anything is sent
+    from ibee.client import IbeeValidationError
+except ImportError:  # pragma: no cover - an SDK without it
+
+    class IbeeValidationError(ValueError):  # type: ignore[no-redef]
+        """Never raised: this SDK has no configuration error class."""
 
 OUTPUT_MODES = ("table", "json", "yaml", "id")
 TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
@@ -27,15 +33,6 @@ class Settings:
     assume_yes: bool = False
     endpoint: Optional[str] = None
 
-    @property
-    def as_json(self) -> bool:
-        return self.output == "json"
-
-    @property
-    def structured_output(self) -> bool:
-        """``True`` for ``-o json|yaml|id``; commands then skip their tables."""
-        return self.output in ("json", "yaml", "id")
-
 
 def get_settings(ctx: typer.Context) -> Settings:
     return ctx.find_root().obj
@@ -51,24 +48,17 @@ def fail_usage(message: str) -> None:
     raise typer.Exit(code=2)
 
 
-def require_workspace(settings: Settings) -> str:
-    if settings.workspace:
-        return settings.workspace
-    fail_usage("No workspace. Set IBEE_WORKSPACE_ID (or pass --workspace).")
-    return ""  # pragma: no cover - fail_usage always raises
-
-
 def get_client(settings: Settings) -> Ibee:
-    """The SDK client for these options (every call is scoped to the workspace).
+    """The SDK client for these options.
 
+    Every operation of the contract takes ``workspace_id``; the SDK sends the client's.
     Endpoint precedence: ``--base-url``, ``IBEE_BASE_URL``, ``IBEE_ENDPOINT``, ``--dev``, then
-    ``IBEE_ENV`` (default production). The SDK checks the URL and the token.
+    ``IBEE_ENV`` (default production).
     """
     if not settings.token:
-        fail_usage(
-            "No API token. Set IBEE_TOKEN (or pass --token). Create one in the portal under Settings > API Tokens."
-        )
-    require_workspace(settings)
+        fail_usage("No API token. Set IBEE_TOKEN (or pass --token). Create one in the portal under Settings > API Tokens.")
+    if not settings.workspace:
+        fail_usage("No workspace. Set IBEE_WORKSPACE_ID (or pass --workspace).")
     explicit = settings.base_url or settings.endpoint
     try:
         return Ibee(
@@ -79,7 +69,7 @@ def get_client(settings: Settings) -> Ibee:
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
     except IbeeValidationError as exc:
-        fail_usage(exc.message)
+        fail_usage(getattr(exc, "message", None) or str(exc))
     raise AssertionError("unreachable")  # pragma: no cover
 
 
