@@ -9,6 +9,8 @@ from typing import Optional
 import typer
 from ibee import Ibee, IbeeEnvironment
 
+from . import __version__
+
 try:  # the SDK's configuration error (bad base URL), raised before anything is sent
     from ibee.client import IbeeValidationError
 except ImportError:  # pragma: no cover - an SDK without it
@@ -19,6 +21,9 @@ except ImportError:  # pragma: no cover - an SDK without it
 OUTPUT_MODES = ("table", "json", "yaml", "id")
 TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes"})
 REQUEST_TIMEOUT_SECONDS = 30
+# Replaces the SDK's own ``ibee/<version>`` so IBEE can tell CLI calls from SDK calls
+# (Activity Logs show the tool that made each change); the SDK's other headers stay.
+USER_AGENT = f"ibee-cli/{__version__}"
 
 
 @dataclass
@@ -67,6 +72,7 @@ def get_client(settings: Settings) -> Ibee:
             base_url=explicit,
             environment=IbeeEnvironment.DEVELOPMENT if settings.dev and not explicit else None,
             timeout=REQUEST_TIMEOUT_SECONDS,
+            headers={"User-Agent": USER_AGENT},
         )
     except IbeeValidationError as exc:
         fail_usage(getattr(exc, "message", None) or str(exc))
