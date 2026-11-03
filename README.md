@@ -7,7 +7,7 @@ CDN remains available.
 
 Official command-line interface for the IBEE Solutions cloud platform, built on the
 [`ibee` Python SDK](https://github.com/devs-ibee/ibee-python). It has one command per
-operation of the IBEE public API (contract 0.7.1, 225 operations): each command makes
+operation of the IBEE public API (contract 0.9.0, 229 operations): each command makes
 that operation's one SDK call and prints the server's answer. The server decides
 prices, eligibility, limits and states; the CLI checks nothing before sending.
 

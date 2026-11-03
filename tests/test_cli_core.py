@@ -32,7 +32,7 @@ def test_help_and_version() -> None:
         assert group in result.output
     for gone in ("billing", "console"):
         assert runner.invoke(app, [gone, "--help"]).exit_code == 2
-    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.6.0"
+    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.7.0"
 
 
 def test_missing_token_and_workspace_are_usage_errors(monkeypatch: pytest.MonkeyPatch) -> None:
