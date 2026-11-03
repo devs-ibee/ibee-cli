@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+- Follow public API contract 0.9.0 with 229 commands, including cloud/GPU manual
+  backup creation and queued restore cancellation. Cancellation requires confirmation.
+- Retain all 51 paused Object Storage and Container Registry commands and explain
+  the gateway's empty 404 response.
+- Add optional idempotency-key flags for the six networking create operations and
+  send `ibee-cli/0.7.0` as the client User-Agent.
+- Require `ibee>=0.7.0,<0.8`. Publish Python SDK 0.7.0 before releasing the CLI;
+  its existing SDK drift check can then verify the published dependency.
+
+
 ## 0.6.0
 
 The CLI follows the public API contract 0.7.1 (225 operations) one to one, on the

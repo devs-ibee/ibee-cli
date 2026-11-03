@@ -2,7 +2,7 @@
 
 # Command reference
 
-One `ibee` command per operation of the IBEE public API contract 0.7.1 (225 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
+One `ibee` command per operation of the IBEE public API contract 0.9.0 (229 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
 
 ## `ibee vms`
 
@@ -38,11 +38,13 @@ Cloud VMs.
 | `ibee vms backup-policy enable VM_ID` | `enableCloudVmBackups` | `POST /compute/cloud-vms/{vm_id}/backups/enable` |
 | `ibee vms backup-policy disable VM_ID` | `disableCloudVmBackups` | `POST /compute/cloud-vms/{vm_id}/backups/disable` |
 | `ibee vms backups list VM_ID` | `listCloudVmBackupRuns` | `GET /compute/cloud-vms/{vm_id}/backups/runs` |
+| `ibee vms backups create VM_ID` | `createCloudVmBackupRun` | `POST /compute/cloud-vms/{vm_id}/backups/runs` |
 | `ibee vms backups restore VM_ID` (asks for confirmation; `--yes` skips it) | `restoreCloudVmBackup` | `POST /compute/cloud-vms/{vm_id}/backups/actions/restore` |
 | `ibee vms backups list-all` | `listAllCloudVmBackupRuns` | `GET /compute/cloud-vm-backups/runs` |
 | `ibee vms backups get RUN_ID` | `getCloudVmBackupRun` | `GET /compute/cloud-vm-backups/runs/{run_id}` |
 | `ibee vms backups delete RUN_ID` (asks for confirmation; `--yes` skips it) | `deleteCloudVmBackupRun` | `DELETE /compute/cloud-vm-backups/runs/{run_id}` |
 | `ibee vms backups restore-status RESTORE_ID` | `getCloudVmBackupRestore` | `GET /compute/cloud-vm-backups/restores/{restore_id}` |
+| `ibee vms backups restore-cancel RESTORE_ID` (asks for confirmation; `--yes` skips it) | `cancelCloudVmBackupRestore` | `POST /compute/cloud-vm-backups/restores/{restore_id}/actions/cancel` |
 
 ## `ibee gpus`
 
@@ -78,11 +80,13 @@ GPU VMs.
 | `ibee gpus backup-policy enable VM_ID` | `enableGpuVmBackups` | `POST /compute/gpu-vms/{vm_id}/backups/enable` |
 | `ibee gpus backup-policy disable VM_ID` | `disableGpuVmBackups` | `POST /compute/gpu-vms/{vm_id}/backups/disable` |
 | `ibee gpus backups list VM_ID` | `listGpuVmBackupRuns` | `GET /compute/gpu-vms/{vm_id}/backups/runs` |
+| `ibee gpus backups create VM_ID` | `createGpuVmBackupRun` | `POST /compute/gpu-vms/{vm_id}/backups/runs` |
 | `ibee gpus backups restore VM_ID` (asks for confirmation; `--yes` skips it) | `restoreGpuVmBackup` | `POST /compute/gpu-vms/{vm_id}/backups/actions/restore` |
 | `ibee gpus backups list-all` | `listAllGpuVmBackupRuns` | `GET /compute/gpu-vm-backups/runs` |
 | `ibee gpus backups get RUN_ID` | `getGpuVmBackupRun` | `GET /compute/gpu-vm-backups/runs/{run_id}` |
 | `ibee gpus backups delete RUN_ID` (asks for confirmation; `--yes` skips it) | `deleteGpuVmBackupRun` | `DELETE /compute/gpu-vm-backups/runs/{run_id}` |
 | `ibee gpus backups restore-status RESTORE_ID` | `getGpuVmBackupRestore` | `GET /compute/gpu-vm-backups/restores/{restore_id}` |
+| `ibee gpus backups restore-cancel RESTORE_ID` (asks for confirmation; `--yes` skips it) | `cancelGpuVmBackupRestore` | `POST /compute/gpu-vm-backups/restores/{restore_id}/actions/cancel` |
 
 ## `ibee ops`
 
