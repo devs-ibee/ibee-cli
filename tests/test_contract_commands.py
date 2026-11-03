@@ -26,14 +26,13 @@ VM_CREATES = {"createCloudVm", "createGpuVm"}
 #: Destructive commands besides DELETE: they ask for confirmation unless --yes.
 CONFIRMED_POSTS = {
     "archiveSecretStore", "revokeSecretIdentitySessions", "destroySecretVersions", "revokeS3Credential", "purgeCdnCache",
-    "restoreCloudVmSnapshot", "restoreCloudVmBackup", "detachCloudVmVolume",
-    "restoreGpuVmSnapshot", "restoreGpuVmBackup", "detachGpuVmVolume",
+    "restoreCloudVmSnapshot", "restoreCloudVmBackup", "detachCloudVmVolume", "cancelCloudVmBackupRestore",
+    "restoreGpuVmSnapshot", "restoreGpuVmBackup", "detachGpuVmVolume", "cancelGpuVmBackupRestore",
 }
 #: The 23 operations contract 0.6.2 removed (from 0.5.0) and the commands that called them.
 REMOVED_COMMANDS = [
     "vms mount-guidance-acknowledge", "gpus mount-guidance-acknowledge", "block-storage attach", "block-storage detach",
-    "billing eligibility", "console close", "console create", "console get", "vms backups create", "gpus backups create",
-    "registries empty", "cdn generate-url", "secrets patch-value", "vms backup-policy reschedule",
+    "billing eligibility", "console close", "console create", "console get", "registries empty", "cdn generate-url", "secrets patch-value", "vms backup-policy reschedule",
     "gpus backup-policy reschedule", "vms resize-plan", "vms resize-root-disk", "gpus resize-plan", "gpus resize-root-disk",
     "secrets identities update", "secrets identities scopes update", "secrets stores update", "vpcs subnets update",
 ]
@@ -123,8 +122,8 @@ TREE = command_tree()
 
 
 def test_one_command_per_operation() -> None:
-    assert len(OPS) == 225
-    assert CONTRACT["info"]["version"] == "0.7.1"
+    assert len(OPS) == 229
+    assert CONTRACT["info"]["version"] == "0.9.0"
     assert set(TREE) == {op.id for op in OPS}
 
 

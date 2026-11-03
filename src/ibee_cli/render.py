@@ -384,7 +384,14 @@ def handle_api_errors(fn: Callable) -> Callable:
         try:
             return fn(*args, **kwargs)
         except ApiError as exc:
-            _print_error(error_record(exc))
+            record = error_record(exc)
+            if exc.status_code == 404 and not exc.body and fn.__module__.rsplit(".", 1)[-1] in {"buckets", "registries"}:
+                record["code"] = "public_operation_temporarily_paused"
+                record["message"] = "This public API operation is temporarily paused. The command is retained for compatibility; the empty 404 does not prove the resource was deleted."
+            elif not record.get("message") and getattr(exc, "message", None):
+                record["message"] = exc.message
+                record["code"] = record.get("code") or getattr(exc, "code", None)
+            _print_error(record)
             if (exc.status_code or 0) in (429, 502, 503, 504) or (exc.status_code or 0) >= 500:
                 retry_hint(getattr(exc, "idempotency_key", None))
             raise typer.Exit(code=exit_code(exc))

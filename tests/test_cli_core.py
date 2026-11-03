@@ -151,3 +151,12 @@ def test_response_that_does_not_match_the_contract_is_printed_as_received(gw) ->
     error = json.loads(result.output)["error"]
     assert error["body"] == sent and error["request_id"] == "req-123"
     assert error["message"].startswith("response not parsed")
+
+
+@pytest.mark.parametrize("group,path", [("buckets", "object-storage/buckets"), ("registries", "container-registry/registries")])
+def test_paused_public_commands_explain_empty_404(gw, group, path):
+    gw.on("GET", path, (404, None))
+    result = run([group, "list"])
+    assert result.exit_code == 14
+    assert "temporarily paused" in plain(result)
+    assert "does not prove the resource was deleted" in plain(result)

@@ -1,5 +1,10 @@
 # IBEE Solutions CLI
 
+Object Storage and Container Registry public management operations are temporarily paused.
+Published methods and commands remain available for compatibility. An empty 404
+from these routes reports the pause; it does not prove an existing resource was deleted.
+CDN remains available.
+
 Official command-line interface for the IBEE Solutions cloud platform, built on the
 [`ibee` Python SDK](https://github.com/devs-ibee/ibee-python). It has one command per
 operation of the IBEE public API (contract 0.7.1, 225 operations): each command makes
