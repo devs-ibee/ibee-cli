@@ -130,6 +130,8 @@ VM_COMMANDS = {
     "update{K}BackupPolicy": "backup-policy update",
     "enable{K}Backups": "backup-policy enable",
     "disable{K}Backups": "backup-policy disable",
+    "create{K}BackupRun": "backups create",
+    "cancel{K}BackupRestore": "backups restore-cancel",
     "list{K}BackupRuns": "backups list",
     "listAll{K}BackupRuns": "backups list-all",
     "get{K}BackupRun": "backups get",
@@ -316,7 +318,7 @@ CONFIRM = {
     "destroySecretVersions",
     "revokeS3Credential",
     "purgeCdnCache",
-    *(op.format(K=k) for k in ("CloudVm", "GpuVm") for op in ("restore{K}Snapshot", "restore{K}Backup", "detach{K}Volume")),
+    *(op.format(K=k) for k in ("CloudVm", "GpuVm") for op in ("restore{K}Snapshot", "restore{K}Backup", "cancel{K}BackupRestore", "detach{K}Volume")),
 }
 
 #: The VM creates: ``billing_catalog`` may be built from the plan (``--billing-interval``).
