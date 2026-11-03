@@ -64,6 +64,27 @@ def test_endpoint_precedence(monkeypatch: pytest.MonkeyPatch) -> None:
     assert base() == "https://api.ibee.co.in/v1"
 
 
+def test_requests_send_the_cli_user_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real client from ``get_client`` sends ``ibee-cli/<version>`` and keeps the SDK's other headers."""
+    assert context.USER_AGENT == f"ibee-cli/{__version__}"
+    client = context.get_client(context.Settings(token="t", workspace=WS, dev=False, base_url=None))
+    assert client._client_wrapper.get_headers()["User-Agent"] == f"ibee-cli/{__version__}"
+
+    sent: list[httpx.Request] = []
+
+    def capture(self, request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, json={"sites": [], "count": 0})
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", capture)  # nothing leaves the process
+    assert run(["compute", "sites"]).exit_code == 0
+    assert len(sent) == 1
+    headers = sent[0].headers
+    assert headers["user-agent"] == f"ibee-cli/{__version__}"
+    assert headers["x-fern-language"] == "Python"
+    assert headers["authorization"] == "Bearer test-token"
+
+
 def test_workspace_is_sent_as_workspace_id(gw) -> None:
     gw.on("GET", "compute/sites", {"sites": [], "count": 0})
     assert run(["compute", "sites"]).exit_code == 0
