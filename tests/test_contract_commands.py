@@ -23,6 +23,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 CONTRACT = yaml.safe_load((ROOT / "contract" / "ibee-cloud.yaml").read_text(encoding="utf-8"))
 COMPONENTS = CONTRACT["components"]
 VM_CREATES = {"createCloudVm", "createGpuVm"}
+VM_RESIZES = {"resizeCloudVm", "resizeGpuVm"}
 #: Destructive commands besides DELETE: they ask for confirmation unless --yes.
 CONFIRMED_POSTS = {
     "archiveSecretStore", "revokeSecretIdentitySessions", "destroySecretVersions", "revokeS3Credential", "purgeCdnCache",
@@ -122,8 +123,8 @@ TREE = command_tree()
 
 
 def test_one_command_per_operation() -> None:
-    assert len(OPS) == 229
-    assert CONTRACT["info"]["version"] == "0.9.0"
+    assert len(OPS) == 231
+    assert CONTRACT["info"]["version"] == "0.10.0"
     assert set(TREE) == {op.id for op in OPS}
 
 
@@ -149,9 +150,11 @@ def test_flags_map_one_to_one(op: SimpleOp) -> None:
     expected = {op.option(p): bool(p.get("required")) and p["in"] != "header"
                 for p in op.params if p["in"] in ("query", "header") and p["name"] != "workspace_id"}
     expected.update({"--" + name.replace("_", "-"): name in op.required for name in op.props})
-    if op.id in VM_CREATES:
+    if op.id in VM_CREATES | VM_RESIZES:
         expected["--billing-catalog"] = False
         expected["--billing-interval"] = False
+    if op.id in VM_RESIZES:
+        expected["--plan-id"] = False  # CLI-only: names the plan whose billing_catalog is sent
     if op.confirm:
         expected["--yes"] = False
     assert {name: option.required for name, option in options.items()} == expected

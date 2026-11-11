@@ -7,7 +7,7 @@ CDN remains available.
 
 Official command-line interface for the IBEE Solutions cloud platform, built on the
 [`ibee` Python SDK](https://github.com/devs-ibee/ibee-python). It has one command per
-operation of the IBEE public API (contract 0.9.0, 229 operations): each command makes
+operation of the IBEE public API (contract 0.10.0, 231 operations): each command makes
 that operation's one SDK call and prints the server's answer. The server decides
 prices, eligibility, limits and states; the CLI checks nothing before sending.
 
@@ -60,7 +60,8 @@ ibee vms create --name web-1 --site-id SITE_ID --plan-id PLAN_ID --template-id I
   --billing-interval HOURLY --ssh-keys "$(cat ~/.ssh/id_ed25519.pub)"
 ibee ops get OPERATION_ID
 ibee vms list --limit 20
-ibee vms resize VM_ID --cpu 4 --ram-mb 8192
+ibee vms resize VM_ID --cpu 4 --ram-mb 8192 --disk-gb 80 --plan-id PLAN_ID --billing-interval HOURLY
+ibee billing wallet
 ibee vms delete VM_ID --public-ip-action release --yes
 
 ibee buckets create --name assets --region in-south-2
@@ -80,6 +81,12 @@ ibee registries tokens create REGISTRY_ID --token-name ci-push --permission PULL
 exactly as the portal does. Nothing else is filled in: CPU, RAM, disk, OS and the
 other fields are sent as you give them. `MONTHLY` is a one-month commitment (the API
 answers `409 VM_COMMITTED` to a delete or resize before it ends).
+
+`vms resize` and `gpus resize` move a VM to another plan. Send the target plan's exact
+`--cpu`, `--ram-mb` and `--disk-gb`, and its `billing_catalog`: `--billing-catalog JSON`,
+or `--plan-id PLAN_ID --billing-interval HOURLY|MONTHLY` to build it the same way from
+`GET /compute/plans`. A resize body has no plan field, so `--plan-id` is only used for
+this lookup and is not sent.
 
 ## Global options
 

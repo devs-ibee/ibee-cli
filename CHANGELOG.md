@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.0
+
+- Follow public API contract 0.10.0 with 231 commands; needs `ibee` 0.8.
+- **Breaking:** `vms resize` and `gpus resize` now require `--cpu`, `--ram-mb` and
+  `--disk-gb` (the target plan's exact size) and a `billing_catalog`: either
+  `--billing-catalog JSON`, or `--plan-id PLAN_ID --billing-interval HOURLY|MONTHLY`,
+  which sends that plan's `billing_catalog` from `GET /compute/plans` with the chosen
+  `billing_options` entry merged in, as `vms create` does. `--plan-id` is used only for
+  that lookup and is not sent. The API already refused a resize without the catalog
+  (`400`), so 0.7.0 could not resize. `resize-precheck` takes only the size, as before.
+- Add `ibee billing wallet` (the organization's wallet balance, `billing.read`) and
+  `ibee billing topup --amount-minor N` (a payment page that tops the wallet up once
+  paid, `billing.topup`). A random `Idempotency-Key` is sent when `--idempotency-key`
+  is not given, so a retried call returns the same link.
+- Contract 0.9.1 text corrections in the command help and `COMMANDS.md`.
+
 ## 0.7.0
 
 - Follow public API contract 0.9.0 with 229 commands, including cloud/GPU manual
