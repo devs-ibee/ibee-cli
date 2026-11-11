@@ -1,4 +1,4 @@
-"""The CLI's one convenience: a VM create's ``billing_catalog`` from ``GET /compute/plans``.
+"""The CLI's one convenience: a VM create's or resize's ``billing_catalog`` from ``GET /compute/plans``.
 
 The contract's ``ComputeBillingSelection`` (``billing_catalog`` of ``POST
 /compute/cloud-vms`` and ``POST /compute/gpu-vms``) is the chosen plan's
@@ -9,8 +9,10 @@ the server's own data, as the portal does: read the ``--plan-id`` plan from ``GE
 ``billing_catalog`` and merge in the whole ``billing_options`` entry whose
 ``billing_interval`` is the one asked for (``billing_interval``, ``committed``,
 ``commitment_period``, ``commitment_months``, ``committed_hours``, ``price_unit``,
-``unit_price_minor``...), keeping the catalog's ``price_currency``. Nothing is
-invented or checked here: the server validates the selection and decides the price.
+``unit_price_minor``...), keeping the catalog's ``price_currency``. ``vms resize`` and
+``gpus resize`` (contract 0.10.0) do the same for the target plan named by their
+CLI-only ``--plan-id``, read from ``GET /compute/plans`` without a site filter. Nothing
+is invented or checked here: the server validates the selection and decides the price.
 """
 
 from __future__ import annotations
@@ -41,6 +43,8 @@ def vm_billing_catalog(
             "billing_catalog is required: pass --billing-interval HOURLY|MONTHLY (built from the plan in "
             "GET /compute/plans) or --billing-catalog JSON."
         )
+    if not plan_id:
+        fail_usage("--billing-interval needs --plan-id: the plan whose billing_catalog is sent.")
     interval = str(billing_interval).strip().upper()
     answer = client.compute_catalog.list_compute_plans(
         workspace_id=workspace_id, vm_type=vm_type, **({"site_id": site_id} if site_id else {})

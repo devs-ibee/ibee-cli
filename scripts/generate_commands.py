@@ -15,10 +15,12 @@ printing the server's answer:
 * destructive commands (every DELETE plus ``CONFIRM``) ask for confirmation unless
   ``--yes``.
 
-The one convenience is the VM creates (``vms create``, ``gpus create``): besides
-``--billing-catalog JSON`` they take ``--billing-interval HOURLY|MONTHLY``, which builds
-``billing_catalog`` from the plan's entry in ``GET /compute/plans`` (see
-``src/ibee_cli/billing_selection.py``).
+The one convenience is the VM creates and resizes (``vms create``, ``gpus create``,
+``vms resize``, ``gpus resize``): besides ``--billing-catalog JSON`` they take
+``--billing-interval HOURLY|MONTHLY``, which builds ``billing_catalog`` from the plan's
+entry in ``GET /compute/plans`` (see ``src/ibee_cli/billing_selection.py``). A create
+names the plan in its ``--plan-id`` body field; a resize body has no plan field, so the
+resizes take a CLI-only ``--plan-id`` that is used for this lookup and not sent.
 
 Writes ``src/ibee_cli/commands/<group>.py``, ``src/ibee_cli/commands/__init__.py`` and
 ``COMMANDS.md``. Run it after changing the contract or this file:
@@ -66,6 +68,7 @@ GROUPS = [
     ("firewalls", "firewalls", "Firewall groups, rules and attachments"),
     ("load_balancers", "load-balancers", "L4 and L7 load balancers"),
     ("registries", "registries", "Container Registry"),
+    ("billing", "billing", "Organization wallet balance and top-ups"),
 ]
 
 SUBGROUP_HELP = {
@@ -144,6 +147,9 @@ COMMANDS = {
     **{op.format(K="CloudVm"): "vms " + name for op, name in VM_COMMANDS.items()},
     **{op.format(K="GpuVm"): "gpus " + name for op, name in VM_COMMANDS.items()},
     "getComputeOperation": "ops get",
+    # Billing
+    "getBillingWallet": "billing wallet",
+    "createBillingTopup": "billing topup",
     # Compute catalog
     "listComputeSites": "compute sites",
     "listComputePlans": "compute plans",
@@ -323,6 +329,8 @@ CONFIRM = {
 
 #: The VM creates: ``billing_catalog`` may be built from the plan (``--billing-interval``).
 VM_CREATES = {"createCloudVm": "cloud", "createGpuVm": "gpu"}
+#: The VM resizes: the same, for the target plan named by the CLI-only ``--plan-id``.
+VM_RESIZES = {"resizeCloudVm": "cloud", "resizeGpuVm": "gpu"}
 
 #: Header parameters and the SDK keyword the generated SDK gives them.
 HEADER_KWARGS = {"x-idempotency-key": "idempotency_key", "idempotency-key": "idempotency_key"}
@@ -442,7 +450,13 @@ class Command:
     collection: Optional[str] = None
     id_field: Optional[str] = None
     vm_create: Optional[str] = None
+    vm_resize: Optional[str] = None
     empty_body: bool = False  # the body is an empty JSON object: send `{}` (the server refuses no body)
+
+    @property
+    def builds_catalog(self) -> bool:
+        """``billing_catalog`` may be built from a plan with ``--billing-interval``."""
+        return bool(self.vm_create or self.vm_resize)
 
     @property
     def function(self) -> str:
@@ -518,6 +532,7 @@ def build(contract: Contract) -> list:
             sdk_method=snake(op_id),
             confirm=method == "delete" or op_id in CONFIRM,
             vm_create=VM_CREATES.get(op_id),
+            vm_resize=VM_RESIZES.get(op_id),
         )
         taken: set = set()
         headers: list = []  # after the body fields
@@ -553,7 +568,7 @@ def build(contract: Contract) -> list:
                 command.fields.append(
                     Field(
                         name=name, location="body", kind=contract.kind(schema),
-                        required=name in required and not (command.vm_create and name == "billing_catalog"),
+                        required=name in required and not (command.builds_catalog and name == "billing_catalog"),
                         help=field_help(contract, schema, schema), kwarg=name, var=python_name(name, taken),
                         option="--" + name.replace("_", "-"),
                     )
@@ -630,6 +645,12 @@ def command_help(c: Command) -> str:
             "billing_catalog: pass --billing-catalog JSON, or --billing-interval HOURLY|MONTHLY to send the "
             "--plan-id plan's billing_catalog from GET /compute/plans with that billing_options entry merged in."
         )
+    if c.vm_resize:
+        parts.append(
+            "Send the target plan's exact --cpu, --ram-mb and --disk-gb. billing_catalog: pass --billing-catalog JSON, "
+            "or --plan-id PLAN_ID --billing-interval HOURLY|MONTHLY to send that plan's billing_catalog from "
+            "GET /compute/plans with the billing_options entry merged in (--plan-id is not sent)."
+        )
     parts.append(f"API: {c.method} {c.path} ({c.operation_id}).")
     return "\n\n".join(parts)
 
@@ -643,7 +664,13 @@ def render_command(c: Command) -> str:
     ]
     for f in c.fields:
         lines.append(option_line(f))
-        if c.vm_create and f.name == "billing_catalog":
+        if c.vm_resize and f.name == "billing_catalog":
+            lines.append(
+                "    plan_id: Optional[str] = typer.Option(None, '--plan-id', show_default=False, "
+                "help='Target plan from GET /compute/plans: with --billing-interval, its billing_catalog is sent. "
+                "Not sent itself.'),"
+            )
+        if c.builds_catalog and f.name == "billing_catalog":
             lines.append(
                 "    billing_interval: Optional[str] = typer.Option(None, '--billing-interval', show_default=False, "
                 "help='HOURLY or MONTHLY: send the --plan-id plan\\'s billing_catalog from GET /compute/plans with "
@@ -668,6 +695,8 @@ def render_command(c: Command) -> str:
             continue
         if c.vm_create and f.name == "billing_catalog":
             value = f"vm_billing_catalog(client, workspace(ctx), {c.vm_create!r}, plan_id, site_id, billing_catalog, billing_interval)"
+        elif c.vm_resize and f.name == "billing_catalog":
+            value = f"vm_billing_catalog(client, workspace(ctx), {c.vm_resize!r}, plan_id, None, billing_catalog, billing_interval)"
         elif f.kind == "json":
             value = f"json_arg({f.var}, {f.option!r})"
         else:
@@ -699,7 +728,7 @@ def render_module(module: str, cli: str, help_text: str, commands: list, info: d
     uses = {
         "compact": True,
         "confirm": any(c.confirm for c in commands),
-        "json_arg": any(f.kind == "json" and not (c.vm_create and f.name == "billing_catalog") for c in commands for f in c.fields),
+        "json_arg": any(f.kind == "json" and not (c.builds_catalog and f.name == "billing_catalog") for c in commands for f in c.fields),
         "sdk": True,
         "workspace": True,
         "write_bytes": any(c.binary for c in commands),
@@ -708,14 +737,14 @@ def render_module(module: str, cli: str, help_text: str, commands: list, info: d
     render = ["emit", "handle_api_errors"] if any(not c.binary for c in commands) else ["handle_api_errors"]
     lines = [option_line(f) for c in commands for f in c.fields]
     typing_names = [n for n in ("List", "Optional") if any(n + "[" in line for line in lines)]
-    if any(c.vm_create for c in commands) and "Optional" not in typing_names:
+    if any(c.builds_catalog for c in commands) and "Optional" not in typing_names:
         typing_names.append("Optional")
     out = [HEADER.format(**info) + f'"""``ibee {cli}``: {help_text} (one command per contract operation)."""', ""]
     out += ["from __future__ import annotations", ""]
     if typing_names:
         out += [f"from typing import {', '.join(typing_names)}", ""]
     out += ["import typer", ""]
-    if any(c.vm_create for c in commands):
+    if any(c.builds_catalog for c in commands):
         out.append("from ..billing_selection import vm_billing_catalog")
     out.append(f"from ..helpers import {', '.join(helpers)}")
     out.append(f"from ..render import {', '.join(render)}")

@@ -22,7 +22,7 @@ EDGE_402 = {
 }
 REQ = {"x-request-id": "req-123"}
 GROUPS = ("vms", "gpus", "ops", "compute", "block-storage", "buckets", "cdn", "secrets", "vpcs", "reserved-ips",
-          "firewalls", "load-balancers", "registries")
+          "firewalls", "load-balancers", "registries", "billing")
 
 
 def test_help_and_version() -> None:
@@ -30,9 +30,10 @@ def test_help_and_version() -> None:
     assert result.exit_code == 0
     for group in GROUPS:
         assert group in result.output
-    for gone in ("billing", "console"):
-        assert runner.invoke(app, [gone, "--help"]).exit_code == 2
-    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.7.0"
+    assert runner.invoke(app, ["console", "--help"]).exit_code == 2
+    # Contract 0.10.0 brings `billing` back with the wallet and top-ups only (no eligibility check).
+    assert runner.invoke(app, ["billing", "eligibility", "--help"]).exit_code == 2
+    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.8.0"
 
 
 def test_missing_token_and_workspace_are_usage_errors(monkeypatch: pytest.MonkeyPatch) -> None:

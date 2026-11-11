@@ -2,7 +2,7 @@
 
 # Command reference
 
-One `ibee` command per operation of the IBEE public API contract 0.9.0 (229 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
+One `ibee` command per operation of the IBEE public API contract 0.10.0 (231 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
 
 ## `ibee vms`
 
@@ -323,3 +323,12 @@ Container Registry.
 | `ibee registries sboms get REGISTRY_ID ARTIFACT_DIGEST` | `getContainerRegistrySbom` | `GET /container-registry/registries/{registry_id}/security/sboms/{artifact_digest}` |
 | `ibee registries sboms download REGISTRY_ID ARTIFACT_DIGEST` | `downloadContainerRegistrySbom` | `GET /container-registry/registries/{registry_id}/security/sboms/{artifact_digest}/download` |
 | `ibee registries metrics REGISTRY_ID` | `getContainerRegistryMetrics` | `GET /container-registry/registries/{registry_id}/metrics` |
+
+## `ibee billing`
+
+Organization wallet balance and top-ups.
+
+| Command | Operation | API |
+| --- | --- | --- |
+| `ibee billing wallet` | `getBillingWallet` | `GET /billing/wallet` |
+| `ibee billing topup` | `createBillingTopup` | `POST /billing/topups` |

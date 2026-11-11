@@ -58,6 +58,60 @@ def test_billing_interval_merges_the_plans_option_into_its_catalog(gw, group, vm
     assert json.loads(result.output) == ACCEPTED
 
 
+@pytest.mark.parametrize(("group", "vm_type", "path"), [("vms", "cloud", "compute/cloud-vms"), ("gpus", "gpu", "compute/gpu-vms")])
+def test_resize_builds_the_target_plans_catalog(gw, group, vm_type, path) -> None:
+    """Contract 0.10.0: a resize sends the target plan's size and billing_catalog; --plan-id is not sent."""
+    gw.on("GET", "compute/plans", plans(plan("other", vm_type), plan("plan-1", vm_type), vm_type=vm_type))
+    gw.on("POST", f"{path}/vm-1/actions/resize", (202, ACCEPTED))
+    result = run([group, "resize", "vm-1", "--cpu", "1", "--ram-mb", "2048", "--disk-gb", "50",
+                  "--plan-id", "plan-1", "--billing-interval", "HOURLY"])
+    assert result.exit_code == 0, result.output
+    lookup, resize = gw.calls
+    assert (lookup.method, lookup.path) == ("GET", "compute/plans")
+    assert lookup.params == {"workspace_id": [WS], "vm_type": [vm_type]}
+    assert (resize.method, resize.path) == ("POST", f"{path}/vm-1/actions/resize")
+    assert resize.json == {"cpu": 1, "ram_mb": 2048, "disk_gb": 50, "billing_catalog": {**CATALOG, **HOURLY}}
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ([], "--billing-interval"),
+        (["--billing-interval", "HOURLY"], "--plan-id"),
+        (["--plan-id", "plan-1", "--billing-interval", "HOURLY", "--billing-catalog", "{}"], "not both"),
+    ],
+)
+def test_resize_needs_one_catalog_source(gw, extra, message) -> None:
+    result = run(["vms", "resize", "vm-1", "--cpu", "1", "--ram-mb", "2048", "--disk-gb", "50", *extra])
+    assert result.exit_code == 2 and message in plain(result)
+    assert gw.calls == []
+
+
+def test_resize_catalog_is_sent_as_given(gw) -> None:
+    gw.on("POST", "compute/cloud-vms/vm-1/actions/resize", (202, ACCEPTED))
+    selection = {**CATALOG, **HOURLY}
+    result = run(["vms", "resize", "vm-1", "--cpu", "1", "--ram-mb", "2048", "--disk-gb", "50",
+                  "--billing-catalog", json.dumps(selection)])
+    assert result.exit_code == 0, result.output
+    assert [c.method for c in gw.calls] == ["POST"]
+    assert gw.calls[0].json == {"cpu": 1, "ram_mb": 2048, "disk_gb": 50, "billing_catalog": selection}
+
+
+def test_billing_wallet_and_topup(gw) -> None:
+    wallet = {"organization_id": "org-1", "currency": "INR", "status": "ACTIVE", "available_paid_balance_minor": 100,
+              "available_promo_balance_minor": 0, "held_paid_balance_minor": 0, "total_balance_minor": 100}
+    topup = {"checkout_url": "https://pay.example.test/x", "gateway": "razorpay", "amount_minor": 100000,
+             "currency": "INR", "expires_at": None, "payment_attempt_id": "pa-1", "organization_id": "org-1"}
+    gw.on("GET", "billing/wallet", wallet)
+    gw.on("POST", "billing/topups", (201, topup))
+    assert json.loads(run(["billing", "wallet"]).output)["total_balance_minor"] == 100
+    result = run(["billing", "topup", "--amount-minor", "100000"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["checkout_url"] == topup["checkout_url"]
+    assert gw.calls[1].json == {"amount_minor": 100000}
+    assert gw.calls[1].headers.get("idempotency-key")
+
+
 def test_billing_catalog_is_sent_as_given_without_a_lookup(gw, tmp_path) -> None:
     gw.on("POST", "compute/cloud-vms", (202, ACCEPTED))
     selection = {**CATALOG, **HOURLY}
