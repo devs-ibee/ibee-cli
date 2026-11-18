@@ -1,15 +1,16 @@
 # IBEE Solutions CLI
 
-Object Storage and Container Registry public management operations are temporarily paused.
-Published methods and commands remain available for compatibility. An empty 404
-from these routes reports the pause; it does not prove an existing resource was deleted.
-CDN remains available.
-
 Official command-line interface for the IBEE Solutions cloud platform, built on the
 [`ibee` Python SDK](https://github.com/devs-ibee/ibee-python). It has one command per
-operation of the IBEE public API (contract 0.10.0, 231 operations): each command makes
+operation of the IBEE public API (contract 0.13.0, 219 operations): each command makes
 that operation's one SDK call and prints the server's answer. The server decides
 prices, eligibility, limits and states; the CLI checks nothing before sending.
+
+The API manages resources. Data stays on each product's own endpoint, with the
+clients that already exist for it: files over the S3 API
+(`<workspace>.blob.ibeestorage.com`, any S3 tool such as `aws s3` or `rclone`),
+container images with `docker` at `registry.ibee.ai`, and secret values with `bao` or
+`vault` at your Secret Manager endpoint.
 
 ## Installation
 
@@ -35,7 +36,7 @@ sent as every operation's `workspace_id`.
 
 `ibee --help` lists the groups (`vms`, `gpus`, `ops`, `compute`, `block-storage`,
 `buckets`, `cdn`, `secrets`, `vpcs`, `reserved-ips`, `firewalls`, `load-balancers`,
-`registries`); [COMMANDS.md](COMMANDS.md) lists every command with its API operation,
+`registries`, `billing`); [COMMANDS.md](COMMANDS.md) lists every command with its API operation,
 and `ibee COMMAND --help` shows each option's description from the contract.
 
 Every command follows the contract, field for field:
@@ -67,7 +68,9 @@ ibee vms delete VM_ID --public-ip-action release --yes
 ibee buckets create --name assets --region in-south-2
 ibee buckets cors set assets --rules @cors.json
 ibee buckets credentials create --name ci --permission-type object_rw
-ibee secrets create STORE_ID --secret-name db --value '{"password": "..."}'
+ibee secrets credentials create --name ci --access read --folder apps
+ibee secrets update apps/billing/db --custom-metadata '{"owner": "billing"}'
+ibee load-balancers regions
 ibee registries tokens create REGISTRY_ID --token-name ci-push --permission PULL_PUSH
 ```
 
@@ -109,10 +112,9 @@ The server's answer is printed as JSON by default. `-o yaml` prints it as YAML,
 `-o table` as a table (one row per item of a list, or one row per field of an
 object) and `-o id` one identifier per line (for a list, the value the API takes for
 each item, such as a bucket's name). An empty answer (HTTP 204) prints nothing.
-`registries sboms download` writes the document to standard output.
-
-Destructive commands (every delete, revoke, archive, purge, restore and volume
-detach) ask for confirmation; `--yes` (or the global `--yes`) skips it.
+Destructive commands (every delete and revoke, `buckets credentials revoke`, `cdn purge`,
+VM restores and volume detach, `secrets versions destroy` and `secrets workspace enable`,
+which can't be undone) ask for confirmation; `--yes` (or the global `--yes`) skips it.
 
 ## Errors
 
