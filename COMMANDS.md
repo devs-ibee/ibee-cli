@@ -2,7 +2,7 @@
 
 # Command reference
 
-One `ibee` command per operation of the IBEE public API contract 0.10.0 (231 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
+One `ibee` command per operation of the IBEE public API contract 0.13.0 (219 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
 
 ## `ibee vms`
 
@@ -178,41 +178,29 @@ CDN distributions, website configuration and custom domains.
 
 ## `ibee secrets`
 
-Secret Store: stores, secrets, application identities and their scopes.
+Secret Manager: secret names, metadata, versions and app credentials (no values).
 
 | Command | Operation | API |
 | --- | --- | --- |
-| `ibee secrets stores list` | `listSecretStores` | `GET /secret-store/stores` |
-| `ibee secrets stores create` | `createSecretStore` | `POST /secret-store/stores` |
-| `ibee secrets stores get STORE_ID` | `getSecretStore` | `GET /secret-store/stores/{store_id}` |
-| `ibee secrets stores archive STORE_ID` (asks for confirmation; `--yes` skips it) | `archiveSecretStore` | `POST /secret-store/stores/{store_id}/archive` |
-| `ibee secrets stores unarchive STORE_ID` | `unarchiveSecretStore` | `POST /secret-store/stores/{store_id}/unarchive` |
-| `ibee secrets stores delete-permanent STORE_ID` (asks for confirmation; `--yes` skips it) | `permanentlyDeleteSecretStore` | `DELETE /secret-store/stores/{store_id}/permanent` |
-| `ibee secrets list STORE_ID` | `listSecrets` | `GET /secret-store/stores/{store_id}/secrets` |
-| `ibee secrets create STORE_ID` | `createSecret` | `POST /secret-store/stores/{store_id}/secrets` |
-| `ibee secrets batch-create STORE_ID` | `batchCreateSecrets` | `POST /secret-store/stores/{store_id}/secrets:batchIngest` |
-| `ibee secrets get SECRET_ID` | `getSecret` | `GET /secret-store/secrets/{secret_id}` |
-| `ibee secrets delete SECRET_ID` (asks for confirmation; `--yes` skips it) | `deleteSecret` | `DELETE /secret-store/secrets/{secret_id}` |
-| `ibee secrets value SECRET_ID` | `getSecretValue` | `GET /secret-store/secrets/{secret_id}/value` |
-| `ibee secrets set-value SECRET_ID` | `updateSecretValue` | `PUT /secret-store/secrets/{secret_id}/value` |
-| `ibee secrets undelete SECRET_ID` | `undeleteSecret` | `POST /secret-store/secrets/{secret_id}/undelete` |
-| `ibee secrets destroy-versions SECRET_ID` (asks for confirmation; `--yes` skips it) | `destroySecretVersions` | `POST /secret-store/secrets/{secret_id}/destroy` |
-| `ibee secrets delete-permanent SECRET_ID` (asks for confirmation; `--yes` skips it) | `permanentlyDeleteSecret` | `DELETE /secret-store/secrets/{secret_id}/permanent` |
-| `ibee secrets versions SECRET_ID` | `listSecretVersions` | `GET /secret-store/secrets/{secret_id}/versions` |
-| `ibee secrets version SECRET_ID VERSION` | `getSecretVersion` | `GET /secret-store/secrets/{secret_id}/versions/{version}` |
-| `ibee secrets rollback SECRET_ID` | `rollbackSecret` | `POST /secret-store/secrets/{secret_id}/rollback` |
-| `ibee secrets identities list STORE_ID` | `listSecretIdentities` | `GET /secret-store/stores/{store_id}/identities` |
-| `ibee secrets identities create STORE_ID` | `createSecretIdentity` | `POST /secret-store/stores/{store_id}/identities` |
-| `ibee secrets identities get IDENTITY_ID` | `getSecretIdentity` | `GET /secret-store/identities/{identity_id}` |
-| `ibee secrets identities delete IDENTITY_ID` (asks for confirmation; `--yes` skips it) | `deleteSecretIdentity` | `DELETE /secret-store/identities/{identity_id}` |
-| `ibee secrets identities disable IDENTITY_ID` | `disableSecretIdentity` | `POST /secret-store/identities/{identity_id}/disable` |
-| `ibee secrets identities enable IDENTITY_ID` | `enableSecretIdentity` | `POST /secret-store/identities/{identity_id}/enable` |
-| `ibee secrets identities access IDENTITY_ID` | `getSecretIdentityAccess` | `GET /secret-store/identities/{identity_id}/access` |
-| `ibee secrets identities rotate-secret-id IDENTITY_ID` | `rotateSecretIdentitySecretId` | `POST /secret-store/identities/{identity_id}/rotate-secret-id` |
-| `ibee secrets identities revoke-sessions IDENTITY_ID` (asks for confirmation; `--yes` skips it) | `revokeSecretIdentitySessions` | `POST /secret-store/identities/{identity_id}/revoke` |
-| `ibee secrets identities scopes list IDENTITY_ID` | `listSecretIdentityScopes` | `GET /secret-store/identities/{identity_id}/scopes` |
-| `ibee secrets identities scopes create IDENTITY_ID` | `createSecretIdentityScope` | `POST /secret-store/identities/{identity_id}/scopes` |
-| `ibee secrets identities scopes delete SCOPE_ID` (asks for confirmation; `--yes` skips it) | `deleteSecretIdentityScope` | `DELETE /secret-store/scopes/{scope_id}` |
+| `ibee secrets workspace get` | `getSecretManagerWorkspace` | `GET /secret-manager/workspace` |
+| `ibee secrets workspace enable` (asks for confirmation; `--yes` skips it) | `enableSecretManagerWorkspace` | `POST /secret-manager/workspace/enable` |
+| `ibee secrets workspace namespace-check NAME` | `checkSecretManagerNamespaceAvailability` | `GET /secret-manager/namespaces/{name}/availability` |
+| `ibee secrets operations get OPERATION_ID` | `getSecretManagerOperation` | `GET /secret-manager/operations/{operation_id}` |
+| `ibee secrets types` | `listSecretManagerSecretTypes` | `GET /secret-manager/secret-types` |
+| `ibee secrets list` | `listSecretManagerSecrets` | `GET /secret-manager/secrets` |
+| `ibee secrets search` | `searchSecretManagerCatalog` | `GET /secret-manager/catalog` |
+| `ibee secrets get SECRET_PATH` | `getSecretManagerSecretMetadata` | `GET /secret-manager/secret-metadata/{secret_path}` |
+| `ibee secrets update SECRET_PATH` | `updateSecretManagerSecretMetadata` | `PUT /secret-manager/secret-metadata/{secret_path}` |
+| `ibee secrets delete SECRET_PATH` (asks for confirmation; `--yes` skips it) | `deleteSecretManagerSecret` | `DELETE /secret-manager/secret-metadata/{secret_path}` |
+| `ibee secrets history SECRET_PATH` | `getSecretManagerSecretHistory` | `GET /secret-manager/secret-history/{secret_path}` |
+| `ibee secrets versions delete SECRET_PATH` | `deleteSecretManagerSecretVersions` | `POST /secret-manager/secret-versions/{secret_path}/delete` |
+| `ibee secrets versions undelete SECRET_PATH` | `undeleteSecretManagerSecretVersions` | `POST /secret-manager/secret-versions/{secret_path}/undelete` |
+| `ibee secrets versions destroy SECRET_PATH` (asks for confirmation; `--yes` skips it) | `destroySecretManagerSecretVersions` | `POST /secret-manager/secret-versions/{secret_path}/destroy` |
+| `ibee secrets credentials list` | `listSecretManagerAppCredentials` | `GET /secret-manager/app-credentials` |
+| `ibee secrets credentials create` | `createSecretManagerAppCredential` | `POST /secret-manager/app-credentials` |
+| `ibee secrets credentials get CREDENTIAL_ID` | `getSecretManagerAppCredential` | `GET /secret-manager/app-credentials/{credential_id}` |
+| `ibee secrets credentials revoke CREDENTIAL_ID` (asks for confirmation; `--yes` skips it) | `revokeSecretManagerAppCredential` | `DELETE /secret-manager/app-credentials/{credential_id}` |
+| `ibee secrets credentials secret-id CREDENTIAL_ID` | `issueSecretManagerAppCredentialSecretId` | `POST /secret-manager/app-credentials/{credential_id}/secret-id` |
 
 ## `ibee vpcs`
 
@@ -278,18 +266,19 @@ Firewall groups, rules and attachments.
 
 ## `ibee load-balancers`
 
-L4 and L7 load balancers.
+Regional load balancers.
 
 | Command | Operation | API |
 | --- | --- | --- |
+| `ibee load-balancers regions` | `listLoadBalancerRegions` | `GET /networking/load-balancers/regions` |
 | `ibee load-balancers list` | `listLoadBalancers` | `GET /networking/load-balancers` |
-| `ibee load-balancers create-l4` | `createL4LoadBalancer` | `POST /networking/load-balancers/l4` |
-| `ibee load-balancers create-l7` | `createL7LoadBalancer` | `POST /networking/load-balancers/l7` |
+| `ibee load-balancers create` | `createLoadBalancer` | `POST /networking/load-balancers` |
 | `ibee load-balancers get LOAD_BALANCER_ID` | `getLoadBalancer` | `GET /networking/load-balancers/{load_balancer_id}` |
+| `ibee load-balancers update LOAD_BALANCER_ID` | `updateLoadBalancer` | `PUT /networking/load-balancers/{load_balancer_id}` |
 | `ibee load-balancers delete LOAD_BALANCER_ID` (asks for confirmation; `--yes` skips it) | `deleteLoadBalancer` | `DELETE /networking/load-balancers/{load_balancer_id}` |
-| `ibee load-balancers update-l4 LOAD_BALANCER_ID` | `updateL4LoadBalancer` | `PATCH /networking/load-balancers/l4/{load_balancer_id}` |
-| `ibee load-balancers update-l7 LOAD_BALANCER_ID` | `updateL7LoadBalancer` | `PATCH /networking/load-balancers/l7/{load_balancer_id}` |
-| `ibee load-balancers status LOAD_BALANCER_ID` | `getLoadBalancerStatus` | `GET /networking/load-balancers/{load_balancer_id}/status` |
+| `ibee load-balancers operation OPERATION_ID` | `getLoadBalancerOperation` | `GET /networking/load-balancers/operations/{operation_id}` |
+| `ibee load-balancers metrics LOAD_BALANCER_ID` | `getLoadBalancerMetrics` | `GET /networking/load-balancers/{load_balancer_id}/metrics` |
+| `ibee load-balancers metrics-history LOAD_BALANCER_ID` | `getLoadBalancerMetricsHistory` | `GET /networking/load-balancers/{load_balancer_id}/metrics/history` |
 
 ## `ibee registries`
 
@@ -321,7 +310,6 @@ Container Registry.
 | `ibee registries vulnerabilities list REGISTRY_ID` | `listContainerRegistryVulnerabilities` | `GET /container-registry/registries/{registry_id}/security/vulnerabilities` |
 | `ibee registries sboms list REGISTRY_ID` | `listContainerRegistrySboms` | `GET /container-registry/registries/{registry_id}/security/sboms` |
 | `ibee registries sboms get REGISTRY_ID ARTIFACT_DIGEST` | `getContainerRegistrySbom` | `GET /container-registry/registries/{registry_id}/security/sboms/{artifact_digest}` |
-| `ibee registries sboms download REGISTRY_ID ARTIFACT_DIGEST` | `downloadContainerRegistrySbom` | `GET /container-registry/registries/{registry_id}/security/sboms/{artifact_digest}/download` |
 | `ibee registries metrics REGISTRY_ID` | `getContainerRegistryMetrics` | `GET /container-registry/registries/{registry_id}/metrics` |
 
 ## `ibee billing`

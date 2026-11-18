@@ -26,7 +26,7 @@ VM_CREATES = {"createCloudVm", "createGpuVm"}
 VM_RESIZES = {"resizeCloudVm", "resizeGpuVm"}
 #: Destructive commands besides DELETE: they ask for confirmation unless --yes.
 CONFIRMED_POSTS = {
-    "archiveSecretStore", "revokeSecretIdentitySessions", "destroySecretVersions", "revokeS3Credential", "purgeCdnCache",
+    "enableSecretManagerWorkspace", "destroySecretManagerSecretVersions", "revokeS3Credential", "purgeCdnCache",
     "restoreCloudVmSnapshot", "restoreCloudVmBackup", "detachCloudVmVolume", "cancelCloudVmBackupRestore",
     "restoreGpuVmSnapshot", "restoreGpuVmBackup", "detachGpuVmVolume", "cancelGpuVmBackupRestore",
 }
@@ -123,8 +123,8 @@ TREE = command_tree()
 
 
 def test_one_command_per_operation() -> None:
-    assert len(OPS) == 231
-    assert CONTRACT["info"]["version"] == "0.10.0"
+    assert len(OPS) == 219
+    assert CONTRACT["info"]["version"] == "0.13.0"
     assert set(TREE) == {op.id for op in OPS}
 
 

@@ -244,10 +244,3 @@ def test_empty_answer_prints_nothing(gw) -> None:
     assert result.exit_code == 0 and result.output == ""
 
 
-def test_sbom_download_writes_the_document(gw) -> None:
-    document = b'{"spdxVersion": "SPDX-2.3"}'
-    gw.on("GET", "container-registry/registries/r-1/security/sboms/sha256:abc/download", (200, document))
-    result = run(["registries", "sboms", "download", "r-1", "sha256:abc", "--repository-name", "api"])
-    assert result.exit_code == 0 and result.stdout_bytes == document
-    call = gw.calls[-1]
-    assert call.params == {"workspace_id": [WS], "repository_name": ["api"]}
