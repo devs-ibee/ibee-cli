@@ -43,7 +43,10 @@ class Gateway:
         path = request.url.path
         if path.startswith("/v1/"):
             path = path[len("/v1/"):]
-        body = json.loads(request.content) if request.content else None
+        try:
+            body = json.loads(request.content) if request.content else None
+        except ValueError:  # a file sent to an upload link
+            body = request.content
         self.calls.append(
             SimpleNamespace(
                 method=request.method,

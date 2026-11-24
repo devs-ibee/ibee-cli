@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.10.0
+
+- Follow public API contract 0.14.3 with 222 commands; needs `ibee` 0.10.
+- New `ibee buckets objects` group: `upload-link`, `download-link` and `metadata` (one
+  command per operation), and `upload BUCKET_NAME OBJECT_PATH FILE` (`-` reads stdin),
+  which computes the file's size and SHA-256, gets an upload link and PUTs the file to
+  it with the SDK's `upload_file`. A refused upload exits with its status's code.
+- Billing refusals with `initial_topup_required` print `required_topup_minor` and
+  `billing_currency` (also in `-o json` errors).
+- `load-balancers list --include-deleted` also lists deleted load balancers.
+- `vms volume-attach` / `gpus volume-attach` take `--shared-access-confirmed`, required
+  with `--mode multi-writer`.
+- Load balancer create and update bodies may carry `firewall`, `managed_by`, target-group
+  `proxy_protocol` and health-check `hostname` / `expected_statuses` (JSON options, as
+  given); `unhealthy_threshold` has no default (the server uses 1 for HTTP, 3 for TCP).
+- Secret Manager enable and registry create may answer 402 (exit 12); load balancer
+  writes may answer 423 (exit 17).
+- `ibee --version` and the User-Agent say 0.10.0.
+
 ## 0.9.0
 
 - Follow public API contract 0.13.0 with 219 commands; needs `ibee` 0.9.

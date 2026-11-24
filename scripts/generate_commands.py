@@ -15,12 +15,17 @@ printing the server's answer:
 * destructive commands (every DELETE plus ``CONFIRM``) ask for confirmation unless
   ``--yes``.
 
-The one convenience is the VM creates and resizes (``vms create``, ``gpus create``,
-``vms resize``, ``gpus resize``): besides ``--billing-catalog JSON`` they take
-``--billing-interval HOURLY|MONTHLY``, which builds ``billing_catalog`` from the plan's
-entry in ``GET /compute/plans`` (see ``src/ibee_cli/billing_selection.py``). A create
-names the plan in its ``--plan-id`` body field; a resize body has no plan field, so the
-resizes take a CLI-only ``--plan-id`` that is used for this lookup and not sent.
+Two conveniences:
+
+* The VM creates and resizes (``vms create``, ``gpus create``, ``vms resize``,
+  ``gpus resize``): besides ``--billing-catalog JSON`` they take
+  ``--billing-interval HOURLY|MONTHLY``, which builds ``billing_catalog`` from the plan's
+  entry in ``GET /compute/plans`` (see ``src/ibee_cli/billing_selection.py``). A create
+  names the plan in its ``--plan-id`` body field; a resize body has no plan field, so the
+  resizes take a CLI-only ``--plan-id`` that is used for this lookup and not sent.
+* ``buckets objects upload BUCKET KEY FILE``, next to ``buckets objects upload-link``:
+  the SDK's ``upload_file`` computes the file's size and SHA-256, gets the upload link
+  and PUTs the file to it.
 
 Writes ``src/ibee_cli/commands/<group>.py``, ``src/ibee_cli/commands/__init__.py`` and
 ``COMMANDS.md``. Run it after changing the contract or this file:
@@ -84,6 +89,7 @@ SUBGROUP_HELP = {
     "buckets notifications": "Bucket event notifications",
     "buckets domains": "Bucket custom domains",
     "buckets credentials": "S3 access credentials",
+    "buckets objects": "One object: upload a file, upload and download links, metadata",
     "cdn website": "Static website configuration of a distribution",
     "cdn domains": "Custom domains of a distribution",
     "secrets workspace": "Secret Manager for the workspace: status, namespace check and enable",
@@ -191,6 +197,9 @@ COMMANDS = {
     "getS3Credential": "buckets credentials get",
     "revokeS3Credential": "buckets credentials revoke",
     "deleteS3Credential": "buckets credentials delete",
+    "createObjectUploadLink": "buckets objects upload-link",
+    "createObjectDownloadLink": "buckets objects download-link",
+    "getObjectMetadata": "buckets objects metadata",
     # CDN
     "listCdnDistributions": "cdn list",
     "createCdnDistribution": "cdn create",
@@ -320,12 +329,17 @@ VM_CREATES = {"createCloudVm": "cloud", "createGpuVm": "gpu"}
 #: The VM resizes: the same, for the target plan named by the CLI-only ``--plan-id``.
 VM_RESIZES = {"resizeCloudVm": "cloud", "resizeGpuVm": "gpu"}
 
+#: The upload link: ``buckets objects upload`` sends a whole file with it (the SDK's ``upload_file``).
+UPLOAD_LINK = "createObjectUploadLink"
+#: Body fields of the upload link that ``upload`` computes from the file.
+UPLOAD_COMPUTED = {"size_bytes", "checksum_sha256"}
+
 #: Header parameters and the SDK keyword the generated SDK gives them.
 HEADER_KWARGS = {"x-idempotency-key": "idempotency_key", "idempotency-key": "idempotency_key"}
 GLOBAL_PARAMS = {"workspace_id"}  # the global --workspace option (the SDK sends the client's)
 #: Python names generated code uses itself; a field with one of them gets a trailing ``_``.
 RESERVED = {"ctx", "yes", "result", "client", "typer", "List", "Optional", "compact", "confirm", "emit", "json_arg",
-            "sdk", "workspace", "write_bytes", "vm_billing_catalog", "handle_api_errors", "app", "range", "type", "format", "id", "filter", "list", "dict", "set", "all", "any", "max", "min",
+            "sdk", "workspace", "write_bytes", "read_file", "vm_billing_catalog", "handle_api_errors", "app", "range", "type", "format", "id", "filter", "list", "dict", "set", "all", "any", "max", "min",
             "input", "next", "iter", "sum", "len", "str", "int", "float", "bool", "object", "hash", "vars", "dir"}
 
 
@@ -706,6 +720,34 @@ def render_command(c: Command) -> str:
     return "\n".join(lines)
 
 
+def render_upload(c: Command) -> str:
+    """``buckets objects upload``: one file through the SDK's ``upload_file`` (size and SHA-256 computed)."""
+    help_text = (
+        "Upload one file with an upload link: computes the file's size and SHA-256, asks for the link "
+        f"({c.operation_id}) and PUTs the file to it on the workspace's S3 host (the API token is not sent there). "
+        "One link carries one whole file; the server refuses what it does not accept. "
+        "Prints the key, size, SHA-256 and ETag; check them with `buckets objects metadata`."
+    )
+    lines = [
+        f"@{app_var(c.words[:-1])}.command('upload', help={help_text!r}, short_help='Upload one file with an upload link')",
+        "@handle_api_errors",
+        "def upload_file(",
+        "    ctx: typer.Context,",
+    ]
+    path_args = [f for f in c.fields if f.location == "path"]
+    options = [f for f in c.fields if f.location == "body" and f.name not in UPLOAD_COMPUTED]
+    lines += [option_line(f) for f in path_args]
+    lines.append("    file: str = typer.Argument(..., metavar='FILE', show_default=False, help='The file to upload; - reads stdin.'),")
+    lines += [option_line(f) for f in options]
+    lines.append(") -> None:")
+    lines.append("    client = sdk(ctx)")
+    kwargs = ["workspace_id=workspace(ctx)"] + [f"{f.kwarg}={f.var}" for f in options]
+    args = ", ".join([f.var for f in path_args] + ["read_file(file)", "**compact(" + ", ".join(kwargs) + ")"])
+    lines.append(f"    result = client.upload_file({args})")
+    lines.append("    emit(result)")
+    return "\n".join(lines)
+
+
 def render_module(module: str, cli: str, help_text: str, commands: list, info: dict) -> str:
     words_needed: list = []
     for c in commands:
@@ -720,6 +762,7 @@ def render_module(module: str, cli: str, help_text: str, commands: list, info: d
         "sdk": True,
         "workspace": True,
         "write_bytes": any(c.binary for c in commands),
+        "read_file": any(c.operation_id == UPLOAD_LINK for c in commands),
     }
     helpers = [name for name, used in uses.items() if used]
     render = ["emit", "handle_api_errors"] if any(not c.binary for c in commands) else ["handle_api_errors"]
@@ -746,6 +789,10 @@ def render_module(module: str, cli: str, help_text: str, commands: list, info: d
         out.append("")
         out.append("")
         out.append(render_command(c))
+        if c.operation_id == UPLOAD_LINK:
+            out.append("")
+            out.append("")
+            out.append(render_upload(c))
     return "\n".join(out) + "\n"
 
 
@@ -780,6 +827,10 @@ def render_reference(commands: list, info: dict) -> str:
             args = " ".join(f.name.upper() for f in c.fields if f.location == "path")
             extra = " (asks for confirmation; `--yes` skips it)" if c.confirm else ""
             lines.append(f"| `ibee {c.cli}{' ' + args if args else ''}`{extra} | `{c.operation_id}` | `{c.method} {c.path}` |")
+            if c.operation_id == UPLOAD_LINK:
+                upload = " ".join(c.cli.split()[:-1] + ["upload"])
+                lines.append(f"| `ibee {upload} {args} FILE` (computes size and SHA-256, then PUTs the file to the link) "
+                             f"| `{c.operation_id}` + PUT | `{c.method} {c.path}`, then `PUT` to the link |")
         lines.append("")
     return "\n".join(lines)
 
