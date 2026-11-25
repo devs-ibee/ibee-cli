@@ -2,7 +2,7 @@
 
 # Command reference
 
-One `ibee` command per operation of the IBEE public API contract 0.13.0 (219 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
+One `ibee` command per operation of the IBEE public API contract 0.14.3 (222 operations). Path parameters are arguments; every query parameter, header and request-body field is an option of the same name (`ssh_key_ids` is `--ssh-key-ids`). `ibee COMMAND --help` shows each option's description from the contract.
 
 ## `ibee vms`
 
@@ -148,6 +148,10 @@ Object Storage buckets, bucket settings and S3 credentials.
 | `ibee buckets domains add BUCKET_NAME` | `addBucketCustomDomain` | `POST /object-storage/buckets/{bucket_name}/custom-domains` |
 | `ibee buckets domains remove BUCKET_NAME DOMAIN` (asks for confirmation; `--yes` skips it) | `removeBucketCustomDomain` | `DELETE /object-storage/buckets/{bucket_name}/custom-domains/{domain}` |
 | `ibee buckets metrics BUCKET_NAME` | `getBucketMetrics` | `GET /object-storage/buckets/{bucket_name}/metrics` |
+| `ibee buckets objects upload-link BUCKET_NAME OBJECT_PATH` | `createObjectUploadLink` | `POST /object-storage/buckets/{bucket_name}/objects/{object_path}/upload-link` |
+| `ibee buckets objects upload BUCKET_NAME OBJECT_PATH FILE` (computes size and SHA-256, then PUTs the file to the link) | `createObjectUploadLink` + PUT | `POST /object-storage/buckets/{bucket_name}/objects/{object_path}/upload-link`, then `PUT` to the link |
+| `ibee buckets objects download-link BUCKET_NAME OBJECT_PATH` | `createObjectDownloadLink` | `POST /object-storage/buckets/{bucket_name}/objects/{object_path}/download-link` |
+| `ibee buckets objects metadata BUCKET_NAME OBJECT_PATH` | `getObjectMetadata` | `GET /object-storage/buckets/{bucket_name}/objects/{object_path}/metadata` |
 | `ibee buckets credentials list` | `listS3Credentials` | `GET /object-storage/credentials` |
 | `ibee buckets credentials create` | `createS3Credential` | `POST /object-storage/credentials` |
 | `ibee buckets credentials get ACCESS_KEY_ID` | `getS3Credential` | `GET /object-storage/credentials/{access_key_id}` |

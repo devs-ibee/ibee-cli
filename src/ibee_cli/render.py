@@ -12,6 +12,7 @@ json``). The exit code tells the error class apart (see ``EXIT_CODES``).
 
 from __future__ import annotations
 
+import dataclasses
 import functools
 import json
 import re
@@ -104,6 +105,8 @@ def to_data(payload: Any) -> Any:
         return _encode(payload)
     if hasattr(payload, "model_dump"):
         return to_data(payload.model_dump(mode="json", by_alias=True, exclude_unset=True))
+    if dataclasses.is_dataclass(payload) and not isinstance(payload, type):  # the SDK's upload result
+        return to_data(dataclasses.asdict(payload))
     if hasattr(payload, "__dict__") and type(payload).__module__ == "types":  # SimpleNamespace
         return {key: to_data(value) for key, value in vars(payload).items()}
     return getattr(payload, "value", payload)
@@ -342,6 +345,11 @@ def error_record(exc: ApiError) -> dict:
         "message": message,
         "request_id": _header(exc.headers, "x-request-id"),
     }
+    for name in ("required_topup_minor", "billing_currency"):  # Billing's first top-up minimum
+        value = _get(body, name)
+        value = value if value is not None else _get(detail, name)
+        if value is not None:
+            record[name] = value
     admission = _get(body, "admission_context_id") or _get(detail, "admission_context_id")
     if admission:
         record["admission_context_id"] = admission
@@ -359,7 +367,8 @@ def _print_error(record: dict) -> None:
         typer.echo(json.dumps({"error": record}, indent=2, default=str), err=True)
         return
     _err(f"Error: HTTP {record['status'] if record.get('status') is not None else '-'}")
-    for key in ("code", "reason", "message", "request_id", "admission_context_id", "required_scope"):
+    for key in ("code", "reason", "required_topup_minor", "billing_currency", "message", "request_id",
+                "admission_context_id", "required_scope"):
         if key in record:
             value = record[key]
             _err(f"  {key}: {'-' if value in (None, '') else value}")

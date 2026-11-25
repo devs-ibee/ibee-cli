@@ -2,13 +2,14 @@
 
 Official command-line interface for the IBEE Solutions cloud platform, built on the
 [`ibee` Python SDK](https://github.com/devs-ibee/ibee-python). It has one command per
-operation of the IBEE public API (contract 0.13.0, 219 operations): each command makes
+operation of the IBEE public API (contract 0.14.3, 222 operations): each command makes
 that operation's one SDK call and prints the server's answer. The server decides
 prices, eligibility, limits and states; the CLI checks nothing before sending.
 
 The API manages resources. Data stays on each product's own endpoint, with the
 clients that already exist for it: files over the S3 API
-(`<workspace>.blob.ibeestorage.com`, any S3 tool such as `aws s3` or `rclone`),
+(`<workspace>.blob.ibeestorage.com`, any S3 tool such as `aws s3` or `rclone`, or one
+file at a time with `ibee buckets objects upload` and an upload or download link),
 container images with `docker` at `registry.ibee.ai`, and secret values with `bao` or
 `vault` at your Secret Manager endpoint.
 
@@ -68,6 +69,10 @@ ibee vms delete VM_ID --public-ip-action release --yes
 ibee buckets create --name assets --region in-south-2
 ibee buckets cors set assets --rules @cors.json
 ibee buckets credentials create --name ci --permission-type object_rw
+ibee buckets objects upload assets docs/report.pdf ./report.pdf --content-type application/pdf
+ibee buckets objects metadata assets docs/report.pdf
+ibee buckets objects download-link assets docs/report.pdf --expires 600 --disposition attachment
+ibee load-balancers list --include-deleted
 ibee secrets credentials create --name ci --access read --folder apps
 ibee secrets update apps/billing/db --custom-metadata '{"owner": "billing"}'
 ibee load-balancers regions
@@ -90,6 +95,17 @@ answers `409 VM_COMMITTED` to a delete or resize before it ends).
 or `--plan-id PLAN_ID --billing-interval HOURLY|MONTHLY` to build it the same way from
 `GET /compute/plans`. A resize body has no plan field, so `--plan-id` is only used for
 this lookup and is not sent.
+
+### One file: `buckets objects upload`
+
+`ibee buckets objects upload BUCKET_NAME OBJECT_PATH FILE` (`-` reads stdin) uploads
+one file with an upload link: the SDK's `upload_file` computes the file's size and
+SHA-256, asks for the link (`createObjectUploadLink`) and PUTs the file to it on the
+workspace's S3 host; the API token is not sent there. It prints the key, size, SHA-256
+and ETag; `buckets objects metadata` shows what was stored. One link carries one whole
+file of at most 80,000,000 bytes (the server's limit); use an S3 tool for larger
+files. `buckets objects upload-link`, `download-link` and `metadata` are the plain
+operations.
 
 ## Global options
 
@@ -125,6 +141,18 @@ Error: HTTP 409
   code: VM_COMMITTED
   message: ...
   request_id: 6f1c2e...
+```
+
+A Billing refusal adds `reason` (`billing_reason`) and, with
+`initial_topup_required`, Billing's first top-up minimum:
+
+```text
+Error: HTTP 402
+  code: billing_denied
+  reason: initial_topup_required
+  required_topup_minor: 50000
+  billing_currency: INR
+  message: Add at least ₹500 to your wallet ...
 ```
 
 With `-o json` the same fields, plus the raw `body`, are printed on stderr as
@@ -165,7 +193,8 @@ The command modules in `src/ibee_cli/commands/` and `COMMANDS.md` are generated 
 `scripts/generate_commands.py`; after updating the contract, run the script and commit
 what it writes. The hand-written parts are the global options (`context.py`), output
 and errors (`render.py`), the shared request helpers (`helpers.py`) and the VM
-`billing_catalog` convenience (`billing_selection.py`).
+`billing_catalog` convenience (`billing_selection.py`). `buckets objects upload` is
+generated too; it calls the SDK's `upload_file`.
 
 CI runs the tests on Python 3.10-3.12 with the ibee-python branch of the same name (or
 ibee from PyPI), and the "SDK drift" check against ibee from PyPI (once a release in

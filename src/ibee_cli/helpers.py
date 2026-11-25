@@ -62,6 +62,18 @@ def confirm(ctx: typer.Context, yes: bool, prompt: str) -> None:
     typer.confirm(prompt, abort=True)
 
 
+def read_file(path: str) -> bytes:
+    """A file's bytes (``-`` reads stdin), for ``buckets objects upload``."""
+    if path == "-":
+        return getattr(sys.stdin, "buffer", sys.stdin).read()
+    try:
+        with open(path, "rb") as handle:
+            return handle.read()
+    except OSError as exc:
+        context.fail_usage(f"FILE: cannot read {path}: {exc.strerror or exc}")
+    return b""  # pragma: no cover - fail_usage always raises
+
+
 def write_bytes(chunks: Iterable[bytes]) -> None:
     """Write a binary answer (a downloaded document) to stdout unchanged."""
     stream = getattr(sys.stdout, "buffer", sys.stdout)
@@ -70,4 +82,4 @@ def write_bytes(chunks: Iterable[bytes]) -> None:
     stream.flush()
 
 
-__all__ = ["compact", "confirm", "json_arg", "sdk", "workspace", "write_bytes"]
+__all__ = ["compact", "confirm", "json_arg", "read_file", "sdk", "workspace", "write_bytes"]

@@ -30,6 +30,8 @@ CONFIRMED_POSTS = {
     "restoreCloudVmSnapshot", "restoreCloudVmBackup", "detachCloudVmVolume", "cancelCloudVmBackupRestore",
     "restoreGpuVmSnapshot", "restoreGpuVmBackup", "detachGpuVmVolume", "cancelGpuVmBackupRestore",
 }
+#: Convenience commands besides the one command per operation (they call the SDK's helpers).
+CONVENIENCES = {"buckets objects upload"}
 #: The 23 operations contract 0.6.2 removed (from 0.5.0) and the commands that called them.
 REMOVED_COMMANDS = [
     "vms mount-guidance-acknowledge", "gpus mount-guidance-acknowledge", "block-storage attach", "block-storage detach",
@@ -110,6 +112,8 @@ def command_tree() -> dict:
             for name, sub in cmd.commands.items():
                 walk(sub, [*words, name])
             return
+        if " ".join(words) in CONVENIENCES:
+            return
         match = re.search(r"API: (\w+) (\S+) \((\w+)\)\.", cmd.help or "")
         assert match, f"`ibee {' '.join(words)}` names no operation"
         assert match.group(3) not in found, f"{match.group(3)} has two commands"
@@ -123,8 +127,8 @@ TREE = command_tree()
 
 
 def test_one_command_per_operation() -> None:
-    assert len(OPS) == 219
-    assert CONTRACT["info"]["version"] == "0.13.0"
+    assert len(OPS) == 222
+    assert CONTRACT["info"]["version"] == "0.14.3"
     assert set(TREE) == {op.id for op in OPS}
 
 
