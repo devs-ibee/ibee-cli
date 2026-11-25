@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from pathlib import Path
 
 import httpx
 import pytest
@@ -33,7 +35,8 @@ def test_help_and_version() -> None:
     assert runner.invoke(app, ["console", "--help"]).exit_code == 2
     # Contract 0.10.0 brings `billing` back with the wallet and top-ups only (no eligibility check).
     assert runner.invoke(app, ["billing", "eligibility", "--help"]).exit_code == 2
-    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == "ibee-cli 0.8.0"
+    published = re.search(r'^version = "([^"]+)"', (Path(__file__).parents[1] / "pyproject.toml").read_text(), re.M)[1]
+    assert runner.invoke(app, ["--version"]).output.strip() == f"ibee-cli {__version__}" == f"ibee-cli {published}"
 
 
 def test_missing_token_and_workspace_are_usage_errors(monkeypatch: pytest.MonkeyPatch) -> None:

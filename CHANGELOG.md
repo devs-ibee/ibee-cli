@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.0
+
+- Follow public API contract 0.13.0 with 219 commands; needs `ibee` 0.9.
+- **Breaking:** `ibee secrets` is now Secret Manager (Secret Store left the API in
+  contract 0.11.0): `secrets workspace get|namespace-check|enable`, `secrets operations get`,
+  `secrets types|list|search|get|update|delete|history`,
+  `secrets versions delete|undelete|destroy` and
+  `secrets credentials list|create|get|secret-id|revoke`. No command reads or writes a
+  secret value: use `bao` or `vault` at the workspace endpoint. `secrets workspace enable`
+  (permanent) and `secrets versions destroy` ask for confirmation.
+- **Breaking:** `ibee load-balancers` follows the regional load balancer service:
+  `create` and `update` take one full specification, plus `regions`, `operation`,
+  `metrics` and `metrics-history`. `create-l4`, `create-l7`, `update-l4`, `update-l7` and
+  `status` are removed. Writes send a random `Idempotency-Key` unless
+  `--idempotency-key` is given.
+- Object Storage and Container Registry commands are no longer paused. Files and images
+  stay on S3 and the registry; `registries sboms download` is removed. No command
+  empties a whole bucket or registry.
+
 ## 0.8.0
 
 - Follow public API contract 0.10.0 with 231 commands; needs `ibee` 0.8.
