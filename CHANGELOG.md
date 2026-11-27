@@ -1,5 +1,20 @@
 # Changelog
 
+
+## 0.11.0
+
+- Update to public API contract 0.15.0 and the 0.11 Python SDK (`ibee>=0.11.0,<0.12`).
+- Every delete prints the server's answer. The seven that printed nothing (the API
+  answered `204`) now print `{"id", "status", "deletion"}`: `vpcs delete`,
+  `vpcs subnets delete`, `vpcs nodes detach`, `vpcs nat delete`,
+  `vpcs forwarding delete`, `firewalls delete` and `reserved-ips release`; `-o id`
+  prints the id.
+- Every other delete's answer includes `deletion`: `state` (`deleted`, `released`,
+  `detached`, `revoked`, or `deleting` / `revoking` while it continues in the
+  background), `operation_id`, and `check`, the read that answers 404 once the resource
+  is gone.
+- `registries get` / `registries list` show `reconciliation_status`.
+- `secrets workspace enable` help: Billing refuses with 402 `billing_denied`.
 ## 0.10.0
 
 - Follow public API contract 0.14.3 with 222 commands; needs `ibee` 0.10.

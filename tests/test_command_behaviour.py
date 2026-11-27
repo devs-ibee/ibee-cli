@@ -195,7 +195,8 @@ def test_bad_json_option_sends_nothing(gw, value) -> None:
 
 
 def test_global_yes_and_env_skip_confirmation(gw, monkeypatch) -> None:
-    gw.on("DELETE", "networking/reserved-ips/rip-1", None)
+    gw.on("DELETE", "networking/reserved-ips/rip-1",
+          {"id": "rip-1", "status": "released", "deletion": {"resource_id": "rip-1", "state": "released"}})
     assert run(["--yes", "reserved-ips", "release", "rip-1"]).exit_code == 0
     monkeypatch.setenv("IBEE_ASSUME_YES", "1")
     assert run(["reserved-ips", "release", "rip-1"]).exit_code == 0
@@ -238,9 +239,13 @@ def test_ids_of_bare_lists_and_objects(gw) -> None:
     assert "operation_id" in table and "op-1" in table
 
 
-def test_empty_answer_prints_nothing(gw) -> None:
-    gw.on("DELETE", "networking/vpcs/vpc-1", None)
+def test_delete_prints_the_deletion_answer(gw) -> None:
+    """Contract 0.15.0: no delete answers 204; the CLI prints what the server says."""
+    gone = {"id": "vpc-1", "status": "deleted",
+            "deletion": {"resource_id": "vpc-1", "state": "deleted", "check": "GET /v1/networking/vpcs/vpc-1"}}
+    gw.on("DELETE", "networking/vpcs/vpc-1", gone)
     result = run(["vpcs", "delete", "vpc-1", "--yes"])
-    assert result.exit_code == 0 and result.output == ""
+    assert result.exit_code == 0 and json.loads(result.output) == gone
+    assert run(["-o", "id", "vpcs", "delete", "vpc-1", "--yes"]).output.strip() == "vpc-1"
 
 

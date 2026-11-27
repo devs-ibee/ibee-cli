@@ -127,7 +127,8 @@ The endpoint is chosen in this order: `--base-url`, `IBEE_BASE_URL`, `IBEE_ENDPO
 The server's answer is printed as JSON by default. `-o yaml` prints it as YAML,
 `-o table` as a table (one row per item of a list, or one row per field of an
 object) and `-o id` one identifier per line (for a list, the value the API takes for
-each item, such as a bucket's name). An empty answer (HTTP 204) prints nothing.
+each item, such as a bucket's name). Every delete prints its answer, including
+`deletion`: whether the resource is gone (`deleted`) or still going (`deleting`).
 Destructive commands (every delete and revoke, `buckets credentials revoke`, `cdn purge`,
 VM restores and volume detach, `secrets versions destroy` and `secrets workspace enable`,
 which can't be undone) ask for confirmation; `--yes` (or the global `--yes`) skips it.
