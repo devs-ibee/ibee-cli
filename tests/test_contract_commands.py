@@ -128,7 +128,7 @@ TREE = command_tree()
 
 def test_one_command_per_operation() -> None:
     assert len(OPS) == 222
-    assert CONTRACT["info"]["version"] == "0.14.3"
+    assert CONTRACT["info"]["version"] == "0.15.0"
     assert set(TREE) == {op.id for op in OPS}
 
 

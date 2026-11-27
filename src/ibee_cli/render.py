@@ -3,7 +3,8 @@
 Every command prints the server's answer as received. Output modes (global
 ``-o/--output``, env ``IBEE_OUTPUT``; ``--json`` is ``-o json``): ``json`` (the
 default), ``yaml``, ``table`` (the items of a list, or the fields of one object) and
-``id`` (one identifier per line). An empty answer (HTTP 204) prints nothing.
+``id`` (one identifier per line). An empty answer prints nothing (since contract
+0.15.0 no operation answers 204: a delete prints its ``deletion`` state).
 
 Errors go to stderr: the HTTP status and the server's code, message and request id
 exactly as the server sent them (``{"error": {...}}`` with the raw body under ``-o
